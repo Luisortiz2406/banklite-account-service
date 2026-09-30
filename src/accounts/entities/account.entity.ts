@@ -39,6 +39,10 @@ export class Account {
   })
   status: 'pending' | 'active' | 'closed' | 'blocked';
 
+  // Quién bloqueó la cuenta: el titular puede desbloquear solo sus propios bloqueos.
+  @Column({ name: 'blocked_by', type: 'varchar', nullable: true })
+  blockedBy: 'user' | 'bank' | null;
+
   @Column({ name: 'daily_limit', type: 'numeric', precision: 18, scale: 2, default: 0 })
   dailyLimit: number;
 

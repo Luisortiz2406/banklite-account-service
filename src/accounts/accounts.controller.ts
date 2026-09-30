@@ -32,6 +32,11 @@ export class AccountsController {
     return this.accountsService.create(dto, this.requesterId(request));
   }
 
+  @Get()
+  list(@Req() request: Request) {
+    return this.accountsService.listForUser(this.requesterId(request));
+  }
+
   @Get(':account_id/limits')
   getLimits(
     @Param('account_id', ParseUUIDPipe) accountId: string,

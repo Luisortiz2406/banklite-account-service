@@ -15,13 +15,14 @@ export class CreateAccountDto {
   @IsIn(['savings', 'checking'], { message: 'accountType debe ser savings o checking' })
   accountType?: 'savings' | 'checking';
 
+  // Opcionales: el servicio exige que no superen los límites regulatorios.
   @IsOptional()
-  @IsNumber()
+  @IsNumber({ maxDecimalPlaces: 2 })
   @Min(0)
   dailyLimit?: number;
 
   @IsOptional()
-  @IsNumber()
+  @IsNumber({ maxDecimalPlaces: 2 })
   @Min(0)
   monthlyLimit?: number;
 }

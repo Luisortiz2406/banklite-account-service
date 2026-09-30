@@ -40,6 +40,18 @@ export class AccountsService {
       where: { idUser: dto.idUser },
     });
 
+    // El cliente puede pedir límites más bajos, pero nunca superar los regulatorios.
+    const dailyLimit = dto.dailyLimit ?? LIMITE_DIARIO_DEFECTO;
+    const monthlyLimit = dto.monthlyLimit ?? LIMITE_MENSUAL_DEFECTO;
+    if (dailyLimit > LIMITE_DIARIO_DEFECTO || monthlyLimit > LIMITE_MENSUAL_DEFECTO) {
+      throw new BadRequestException(
+        `Los límites máximos permitidos son ${LIMITE_DIARIO_DEFECTO} diario y ${LIMITE_MENSUAL_DEFECTO} mensual.`,
+      );
+    }
+    if (dailyLimit > monthlyLimit) {
+      throw new BadRequestException('El límite diario no puede superar el límite mensual.');
+    }
+
     for (let attempt = 0; attempt < 5; attempt++) {
       const accountNumber = await this.generateAccountNumber();
       const account = this.accounts.create({
@@ -48,8 +60,9 @@ export class AccountsService {
         accountType: dto.accountType ?? 'savings',
         currency: dto.currency,
         status: verificacion?.verified ? 'active' : 'pending',
-        dailyLimit: dto.dailyLimit ?? LIMITE_DIARIO_DEFECTO,
-        monthlyLimit: dto.monthlyLimit ?? LIMITE_MENSUAL_DEFECTO,
+        dailyLimit,
+        monthlyLimit,
+        blockedBy: null,
       });
       try {
         return await this.accounts.save(account);
@@ -58,6 +71,15 @@ export class AccountsService {
       }
     }
     throw new BadRequestException('No se pudo asignar un número de cuenta. Inténtalo nuevamente.');
+  }
+
+  /** GET /accounts — cuentas del usuario autenticado (no depende del navegador). */
+  async listForUser(requesterId: string) {
+    const accounts = await this.accounts.find({
+      where: { idUser: requesterId },
+      order: { createdAt: 'ASC' },
+    });
+    return Promise.all(accounts.map((account) => this.ensureAccountNumber(account)));
   }
 
   /** GET /accounts/{account_id}/limits */
@@ -84,6 +106,27 @@ export class AccountsService {
     this.assertOwnership(account, requesterId);
     if (account.status === 'closed') {
       throw new BadRequestException('No se puede modificar una cuenta cerrada');
+    }
+    if (account.status === dto.status) return account;
+
+    // Reglas de transición para el titular:
+    //  - 'pending' solo pasa a 'active' con el evento identity.verified (KYC), nunca a mano.
+    //  - Un bloqueo solo lo levanta el titular si él mismo lo puso; un bloqueo
+    //    del banco (blockedBy = 'bank') requiere un proceso interno.
+    if (dto.status === 'active') {
+      if (account.status === 'pending') {
+        throw new ForbiddenException('La cuenta se activa automáticamente cuando se verifica tu identidad.');
+      }
+      // blockedBy null = bloqueo anterior a esta columna, que solo podía poner el titular.
+      if (account.status === 'blocked' && account.blockedBy === 'bank') {
+        throw new ForbiddenException('Esta cuenta fue bloqueada por el banco. Comunícate con soporte.');
+      }
+      account.blockedBy = null;
+    } else if (dto.status === 'blocked') {
+      if (account.status === 'pending') {
+        throw new BadRequestException('Una cuenta pendiente de verificación no se puede bloquear.');
+      }
+      account.blockedBy = 'user';
     }
     account.status = dto.status;
     return this.accounts.save(account);
