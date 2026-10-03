@@ -10,14 +10,20 @@ import { Account } from './entities/account.entity';
 import { IdentityVerification } from './entities/identity-verification.entity';
 import { InternalAccountsController } from './internal-accounts.controller';
 import { InternalKeyGuard } from '../common/guards/internal-key.guard';
+import { AdminAccountsController } from '../admin/admin-accounts.controller';
+import { AdminAccountsService } from '../admin/admin-accounts.service';
+import { AdminAudit } from '../common/staff/admin-audit.entity';
+import { AdminAuditService } from '../common/staff/admin-audit.service';
+import { StaffAuthGuard } from '../common/staff/staff-auth.guard';
 
 @Module({
   imports: [
     ConfigModule,
     JwtModule.register({}),
-    TypeOrmModule.forFeature([Account, IdentityVerification]),
+    TypeOrmModule.forFeature([Account, IdentityVerification, AdminAudit]),
   ],
-  controllers: [AccountsController, InternalAccountsController],
-  providers: [AccountsService, EventConsumerService, JwtAuthGuard, InternalKeyGuard],
+  // AdminAccountsController primero: si no, /accounts/:account_id capturaría /accounts/admin.
+  controllers: [AdminAccountsController, AccountsController, InternalAccountsController],
+  providers: [AccountsService, EventConsumerService, JwtAuthGuard, InternalKeyGuard, AdminAccountsService, AdminAuditService, StaffAuthGuard],
 })
 export class AccountsModule {}

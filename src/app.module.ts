@@ -4,6 +4,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { AccountsModule } from './accounts/accounts.module';
 import { Account } from './accounts/entities/account.entity';
 import { IdentityVerification } from './accounts/entities/identity-verification.entity';
+import { AdminAudit } from './common/staff/admin-audit.entity';
 import { HealthController } from './health.controller';
 
 @Module({
@@ -14,7 +15,7 @@ import { HealthController } from './health.controller';
       useFactory: (config: ConfigService) => ({
         type: 'postgres',
         url: config.get<string>('DATABASE_URL'),
-        entities: [Account, IdentityVerification],
+        entities: [Account, IdentityVerification, AdminAudit],
         synchronize: true, // demo académica; en producción usar migraciones
         logging: false,
       }),

@@ -5,7 +5,7 @@ import * as amqplib from 'amqplib';
 import { Repository } from 'typeorm';
 import { Account } from '../accounts/entities/account.entity';
 import { IdentityVerification } from '../accounts/entities/identity-verification.entity';
-import { assertRetryQueues, handleFailure, PoisonMessageError } from './retry-policy';
+import { assertRetryQueues, handleFailure, peekDeadLetters, queueStats, requeueDeadLetters, PoisonMessageError } from './retry-policy';
 
 const RECONNECT_DELAY_MS = 5000;
 
@@ -27,6 +27,7 @@ export class EventConsumerService implements OnModuleInit, OnModuleDestroy {
   private channel: amqplib.Channel | null = null;
   private reconnectTimer: NodeJS.Timeout | null = null;
   private destroyed = false;
+  private queue: string | null = null;
 
   constructor(
     private readonly config: ConfigService,
@@ -76,6 +77,7 @@ export class EventConsumerService implements OnModuleInit, OnModuleDestroy {
       await channel.assertQueue(queue, { durable: true });
       await channel.bindQueue(queue, exchange, 'identity.verified');
       await assertRetryQueues(channel, queue);
+      this.queue = queue;
 
       await channel.consume(queue, (msg) => this.handleMessage(channel, queue, msg), {
         noAck: false,
@@ -135,6 +137,22 @@ export class EventConsumerService implements OnModuleInit, OnModuleDestroy {
     } catch (err) {
       handleFailure(channel, queue, msg, err as Error, this.logger);
     }
+  }
+
+  /** Panel administrativo: estado de la cola, sus reintentos y su DLQ. */
+  async deadLetterStats() {
+    if (!this.channel || !this.queue) return { connected: false };
+    return { connected: true, ...(await queueStats(this.channel, this.queue)) };
+  }
+
+  async peekDeadLetters(max: number) {
+    if (!this.channel || !this.queue) throw new Error('RabbitMQ no está conectado.');
+    return peekDeadLetters(this.channel, this.queue, max);
+  }
+
+  async requeueDeadLetters(max: number) {
+    if (!this.channel || !this.queue) throw new Error('RabbitMQ no está conectado.');
+    return requeueDeadLetters(this.channel, this.queue, max);
   }
 
   async onModuleDestroy() {
