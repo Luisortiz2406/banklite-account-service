@@ -27,8 +27,18 @@ export class Account {
   @Column({ name: 'account_number', type: 'varchar', length: 11, nullable: true })
   accountNumber: string | null;
 
+  // merchant: cuenta de un comercio (p. ej. Netflix) que recibe los cobros de
+  // suscripciones. Su dueño es un usuario de sistema, nunca un cliente.
   @Column({ name: 'account_type', type: 'varchar', default: 'savings' })
-  accountType: 'savings' | 'checking';
+  accountType: 'savings' | 'checking' | 'merchant';
+
+  // Solo en cuentas de comercio: código del comercio (único) y su nombre.
+  @Index({ unique: true, where: 'merchant_code IS NOT NULL' })
+  @Column({ name: 'merchant_code', type: 'varchar', length: 40, nullable: true })
+  merchantCode: string | null;
+
+  @Column({ name: 'merchant_name', type: 'varchar', length: 80, nullable: true })
+  merchantName: string | null;
 
   @Column({ length: 3 })
   currency: string; // ej. 'COP', 'USD'

@@ -8,6 +8,7 @@ import { randomInt } from 'crypto';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { CreateAccountDto } from './dto/create-account.dto';
+import { EnsureMerchantDto } from './dto/ensure-merchant.dto';
 import { UpdateStatusDto } from './dto/update-status.dto';
 import { Account } from './entities/account.entity';
 import { IdentityVerification } from './entities/identity-verification.entity';
@@ -16,6 +17,9 @@ import { IdentityVerification } from './entities/identity-verification.entity';
 // (3.3 del documento: "restricciones regulatorias específicas por país").
 const LIMITE_DIARIO_DEFECTO = 5_000_000; // COP
 const LIMITE_MENSUAL_DEFECTO = 50_000_000; // COP
+
+// Dueño de sistema de las cuentas de comercio: no es un cliente y nunca inicia sesión.
+export const MERCHANT_OWNER_ID = '00000000-0000-4000-8000-0000000000aa';
 
 @Injectable()
 export class AccountsService {
@@ -71,6 +75,51 @@ export class AccountsService {
       }
     }
     throw new BadRequestException('No se pudo asignar un número de cuenta. Inténtalo nuevamente.');
+  }
+
+  /**
+   * POST /internal/accounts/merchants — crea (o devuelve) la cuenta de un comercio.
+   * Idempotente por código: card-service la llama al arrancar con su catálogo.
+   * Solo recibe pagos: no tiene límites de salida porque nunca origina operaciones.
+   */
+  async ensureMerchant(dto: EnsureMerchantDto) {
+    const existing = await this.accounts.findOne({ where: { merchantCode: dto.code } });
+    if (existing) return this.merchantInfo(existing);
+
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const account = this.accounts.create({
+        idUser: MERCHANT_OWNER_ID,
+        accountNumber: await this.generateAccountNumber(),
+        accountType: 'merchant',
+        merchantCode: dto.code,
+        merchantName: dto.name,
+        currency: dto.currency ?? 'COP',
+        status: 'active',
+        dailyLimit: 0,
+        monthlyLimit: 0,
+        blockedBy: null,
+      });
+      try {
+        return this.merchantInfo(await this.accounts.save(account));
+      } catch (error) {
+        if ((error as any)?.code !== '23505' || attempt === 4) throw error;
+        // Otra instancia la creó al mismo tiempo, o chocó el número de cuenta.
+        const raced = await this.accounts.findOne({ where: { merchantCode: dto.code } });
+        if (raced) return this.merchantInfo(raced);
+      }
+    }
+    throw new BadRequestException('No se pudo crear la cuenta del comercio.');
+  }
+
+  private merchantInfo(account: Account) {
+    return {
+      id: account.id,
+      accountNumber: account.accountNumber,
+      merchantCode: account.merchantCode,
+      merchantName: account.merchantName,
+      currency: account.currency,
+      status: account.status,
+    };
   }
 
   /** GET /accounts — cuentas del usuario autenticado (no depende del navegador). */
