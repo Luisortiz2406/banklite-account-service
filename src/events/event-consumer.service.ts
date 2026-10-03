@@ -5,6 +5,7 @@ import * as amqplib from 'amqplib';
 import { Repository } from 'typeorm';
 import { Account } from '../accounts/entities/account.entity';
 import { IdentityVerification } from '../accounts/entities/identity-verification.entity';
+import { assertRetryQueues, handleFailure, PoisonMessageError } from './retry-policy';
 
 const RECONNECT_DELAY_MS = 5000;
 
@@ -14,6 +15,10 @@ const RECONNECT_DELAY_MS = 5000;
  *
  * Si RabbitMQ no está disponible al iniciar, o se cae después, reintenta en
  * segundo plano sin bloquear el arranque del servicio ni sus endpoints REST.
+ *
+ * Si un evento falla al procesarse (p. ej. la base de datos no responde), se
+ * reintenta varias veces con espera y, si sigue fallando, queda en la DLQ
+ * (<cola>.dlq) en lugar de perderse. Ver retry-policy.ts.
  */
 @Injectable()
 export class EventConsumerService implements OnModuleInit, OnModuleDestroy {
@@ -70,8 +75,9 @@ export class EventConsumerService implements OnModuleInit, OnModuleDestroy {
       await channel.assertExchange(exchange, 'topic', { durable: true });
       await channel.assertQueue(queue, { durable: true });
       await channel.bindQueue(queue, exchange, 'identity.verified');
+      await assertRetryQueues(channel, queue);
 
-      await channel.consume(queue, (msg) => this.handleMessage(channel, msg), {
+      await channel.consume(queue, (msg) => this.handleMessage(channel, queue, msg), {
         noAck: false,
       });
 
@@ -96,10 +102,15 @@ export class EventConsumerService implements OnModuleInit, OnModuleDestroy {
   }
 
   // Se usa el canal por el que llegó el mensaje: el ack debe ir por ese mismo canal.
-  private async handleMessage(channel: amqplib.Channel, msg: amqplib.ConsumeMessage | null) {
+  private async handleMessage(channel: amqplib.Channel, queue: string, msg: amqplib.ConsumeMessage | null) {
     if (!msg) return;
     try {
-      const content = JSON.parse(msg.content.toString());
+      let content: any;
+      try {
+        content = JSON.parse(msg.content.toString());
+      } catch {
+        throw new PoisonMessageError('El mensaje no es JSON válido.');
+      }
       const idUser: string | undefined = content?.data?.idUser;
 
       if (!idUser) {
@@ -122,13 +133,7 @@ export class EventConsumerService implements OnModuleInit, OnModuleDestroy {
       this.logger.log(`identity.verified procesado para idUser=${idUser}`);
       channel.ack(msg);
     } catch (err) {
-      this.logger.error(`Error procesando evento: ${(err as Error).message}`);
-      // No reencolar en bucle infinito ante payload corrupto.
-      try {
-        channel.nack(msg, false, false);
-      } catch {
-        // Canal cerrado: RabbitMQ reentregará el mensaje al reconectar.
-      }
+      handleFailure(channel, queue, msg, err as Error, this.logger);
     }
   }
 
