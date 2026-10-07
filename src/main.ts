@@ -7,7 +7,7 @@ async function bootstrap() {
   app.useGlobalPipes(
     new ValidationPipe({ whitelist: true, transform: true, forbidNonWhitelisted: true }),
   );
-  app.enableCors();
+  // Sin CORS: el navegador solo habla con el api-gateway, que es quien decide los orígenes.
   const port = process.env.PORT ?? 3002;
   await app.listen(port);
   console.log(`Account Service escuchando en http://localhost:${port}`);
