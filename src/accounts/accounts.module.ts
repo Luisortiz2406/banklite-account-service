@@ -15,15 +15,23 @@ import { AdminAccountsService } from '../admin/admin-accounts.service';
 import { AdminAudit } from '../common/staff/admin-audit.entity';
 import { AdminAuditService } from '../common/staff/admin-audit.service';
 import { StaffAuthGuard } from '../common/staff/staff-auth.guard';
+import { BrebKey } from '../keys/entities/breb-key.entity';
+import { InternalKeysController, KeysController } from '../keys/keys.controller';
+import { KeysClientsService } from '../keys/keys-clients.service';
+import { KeysService } from '../keys/keys.service';
 
 @Module({
   imports: [
     ConfigModule,
     JwtModule.register({}),
-    TypeOrmModule.forFeature([Account, IdentityVerification, AdminAudit]),
+    TypeOrmModule.forFeature([Account, IdentityVerification, AdminAudit, BrebKey]),
   ],
-  // AdminAccountsController primero: si no, /accounts/:account_id capturaría /accounts/admin.
-  controllers: [AdminAccountsController, AccountsController, InternalAccountsController],
-  providers: [AccountsService, EventConsumerService, JwtAuthGuard, InternalKeyGuard, AdminAccountsService, AdminAuditService, StaffAuthGuard],
+  // AdminAccountsController y KeysController primero: si no, /accounts/:account_id
+  // capturaría /accounts/admin y /accounts/keys.
+  controllers: [AdminAccountsController, KeysController, AccountsController, InternalKeysController, InternalAccountsController],
+  providers: [
+    AccountsService, EventConsumerService, JwtAuthGuard, InternalKeyGuard, AdminAccountsService, AdminAuditService, StaffAuthGuard,
+    KeysService, KeysClientsService,
+  ],
 })
 export class AccountsModule {}
