@@ -18,7 +18,8 @@ export function detectKey(raw: string): { type: BrebKeyType; key: string } | nul
   const value = String(raw ?? '').trim();
   const digits = value.replace(/[\s.-]/g, '');
   if (/^@[a-z0-9._]{3,20}$/i.test(value)) return { type: 'alfanumerica', key: value.toLowerCase() };
-  if (/^[^\s@]+@[^\s@]+\.[a-z]{2,}$/i.test(value) && value.length <= 120) return { type: 'correo', key: value.toLowerCase() };
+  if (/^[^\s@]+@[^\s@]+\.[a-z]{2,}$/i.test(value) && value.length <= 120)
+    return { type: 'correo', key: value.toLowerCase() };
   if (/^3\d{9}$/.test(digits)) return { type: 'celular', key: digits };
   if (/^\d{6,10}$/.test(digits)) return { type: 'documento', key: digits };
   return null;
@@ -36,9 +37,15 @@ export function maskKey(key: string, type: BrebKeyType): string {
 
 /** Bre-B muestra el nombre a medias para confirmar sin revelarlo completo: "Lau••• Góm•••". */
 export function maskName(name: string): string {
-  return String(name ?? '').trim().split(/\s+/).filter(Boolean).slice(0, 3)
-    .map((word) => (word.length <= 3 ? word : word.slice(0, 3) + '•'.repeat(Math.min(word.length - 3, 4))))
-    .join(' ') || 'Cliente Banklite';
+  return (
+    String(name ?? '')
+      .trim()
+      .split(/\s+/)
+      .filter(Boolean)
+      .slice(0, 3)
+      .map((word) => (word.length <= 3 ? word : word.slice(0, 3) + '•'.repeat(Math.min(word.length - 3, 4))))
+      .join(' ') || 'Cliente Banklite'
+  );
 }
 
 /** Celular a 10 dígitos (KYC puede guardarlo con +57). */

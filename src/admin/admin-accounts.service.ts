@@ -27,7 +27,10 @@ export class AdminAccountsService {
       );
     }
     if (status) qb.andWhere('a.status = :status', { status });
-    const [items, total] = await qb.skip((page - 1) * limit).take(limit).getManyAndCount();
+    const [items, total] = await qb
+      .skip((page - 1) * limit)
+      .take(limit)
+      .getManyAndCount();
     return { items: items.map((a) => this.publicAccount(a)), total, page, limit };
   }
 
@@ -46,7 +49,9 @@ export class AdminAccountsService {
     if (from === 'closed') throw new BadRequestException('La cuenta está cerrada; no admite cambios.');
     if (from === status) throw new BadRequestException(`La cuenta ya está en estado '${status}'.`);
     if (from === 'pending' && status !== 'closed') {
-      throw new BadRequestException('Una cuenta pendiente se activa sola al verificarse la identidad; solo se puede cerrar.');
+      throw new BadRequestException(
+        'Una cuenta pendiente se activa sola al verificarse la identidad; solo se puede cerrar.',
+      );
     }
     account.status = status;
     account.blockedBy = status === 'blocked' ? 'bank' : null;
@@ -71,7 +76,13 @@ export class AdminAccountsService {
       await manager.save(account);
       await this.audit.record(
         actor,
-        { action: 'account.limits', targetType: 'account', targetId: id, reason, details: { before, after: { dailyLimit, monthlyLimit } } },
+        {
+          action: 'account.limits',
+          targetType: 'account',
+          targetId: id,
+          reason,
+          details: { before, after: { dailyLimit, monthlyLimit } },
+        },
         manager,
       );
     });

@@ -28,10 +28,23 @@ import { KeysService } from '../keys/keys.service';
   ],
   // AdminAccountsController y KeysController primero: si no, /accounts/:account_id
   // capturaría /accounts/admin y /accounts/keys.
-  controllers: [AdminAccountsController, KeysController, AccountsController, InternalKeysController, InternalAccountsController],
+  controllers: [
+    AdminAccountsController,
+    KeysController,
+    AccountsController,
+    InternalKeysController,
+    InternalAccountsController,
+  ],
   providers: [
-    AccountsService, EventConsumerService, JwtAuthGuard, InternalKeyGuard, AdminAccountsService, AdminAuditService, StaffAuthGuard,
-    KeysService, KeysClientsService,
+    AccountsService,
+    EventConsumerService,
+    JwtAuthGuard,
+    InternalKeyGuard,
+    AdminAccountsService,
+    AdminAuditService,
+    StaffAuthGuard,
+    KeysService,
+    KeysClientsService,
   ],
 })
 export class AccountsModule {}

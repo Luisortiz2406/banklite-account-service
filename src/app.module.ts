@@ -16,14 +16,14 @@ import { validateEnv } from './config/env.validation';
       envFilePath: '.env',
       validate: validateEnv(
         [
-        { key: 'JWT_SECRET', type: 'secret' },
-        { key: 'STAFF_JWT_SECRET', type: 'secret' },
-        { key: 'INTERNAL_TRUSTED_KEYS', type: 'trusted-keys' },
-        // Clave propia para llamar a auth-service (clave dinámica de las llaves Bre-B).
-        { key: 'INTERNAL_API_KEY', type: 'secret' },
-        { key: 'DATABASE_URL', type: 'url' },
-        { key: 'RABBITMQ_URL', type: 'url', optional: true },
-      ],
+          { key: 'JWT_SECRET', type: 'secret' },
+          { key: 'STAFF_JWT_SECRET', type: 'secret' },
+          { key: 'INTERNAL_TRUSTED_KEYS', type: 'trusted-keys' },
+          // Clave propia para llamar a auth-service (clave dinámica de las llaves Bre-B).
+          { key: 'INTERNAL_API_KEY', type: 'secret' },
+          { key: 'DATABASE_URL', type: 'url' },
+          { key: 'RABBITMQ_URL', type: 'url', optional: true },
+        ],
         ['JWT_SECRET', 'STAFF_JWT_SECRET', 'INTERNAL_API_KEY'],
       ),
     }),

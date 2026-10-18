@@ -1,4 +1,10 @@
-import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Not, Repository } from 'typeorm';
 import { Account } from '../accounts/entities/account.entity';
@@ -41,11 +47,15 @@ export class KeysService {
     if (!account) throw new BadRequestException('Necesitas una cuenta Banklite activa para registrar llaves.');
 
     if (await this.keys.exist({ where: { idUser, type } })) {
-      throw new ConflictException(`Ya tienes una llave de tipo ${BREB_LABELS[type].toLowerCase()}. Elimínala para registrar otra.`);
+      throw new ConflictException(
+        `Ya tienes una llave de tipo ${BREB_LABELS[type].toLowerCase()}. Elimínala para registrar otra.`,
+      );
     }
     const taken = await this.keys.findOne({ where: { key: found.key } });
     if (taken) {
-      throw new ConflictException(taken.idUser === idUser ? 'Ya tienes registrada esa llave.' : 'Esa llave ya está registrada por otra persona.');
+      throw new ConflictException(
+        taken.idUser === idUser ? 'Ya tienes registrada esa llave.' : 'Esa llave ya está registrada por otra persona.',
+      );
     }
 
     // Solo puedes registrar TU celular, TU correo y TU cédula (datos verificados en KYC).
@@ -64,15 +74,18 @@ export class KeysService {
     await this.clients.verifyDynamicKey(idUser, dynamicCode);
 
     try {
-      await this.keys.save(this.keys.create({
-        idUser,
-        type,
-        key: found.key,
-        accountId: account.id,
-        holderName: maskName(`${profile.nombres ?? ''} ${profile.apellidos ?? ''}`),
-      }));
+      await this.keys.save(
+        this.keys.create({
+          idUser,
+          type,
+          key: found.key,
+          accountId: account.id,
+          holderName: maskName(`${profile.nombres ?? ''} ${profile.apellidos ?? ''}`),
+        }),
+      );
     } catch (error) {
-      if ((error as any)?.code === '23505') throw new ConflictException('Esa llave acaba de ser registrada. Revisa tus llaves.');
+      if ((error as any)?.code === '23505')
+        throw new ConflictException('Esa llave acaba de ser registrada. Revisa tus llaves.');
       throw error;
     }
     return this.list(idUser);

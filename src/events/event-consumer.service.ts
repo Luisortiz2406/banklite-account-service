@@ -5,7 +5,14 @@ import * as amqplib from 'amqplib';
 import { Repository } from 'typeorm';
 import { Account } from '../accounts/entities/account.entity';
 import { IdentityVerification } from '../accounts/entities/identity-verification.entity';
-import { assertRetryQueues, handleFailure, peekDeadLetters, queueStats, requeueDeadLetters, PoisonMessageError } from './retry-policy';
+import {
+  assertRetryQueues,
+  handleFailure,
+  peekDeadLetters,
+  queueStats,
+  requeueDeadLetters,
+  PoisonMessageError,
+} from './retry-policy';
 
 const RECONNECT_DELAY_MS = 5000;
 
@@ -68,10 +75,7 @@ export class EventConsumerService implements OnModuleInit, OnModuleDestroy {
       this.channel = channel;
 
       const exchange = this.config.get<string>('RABBITMQ_EXCHANGE', 'banklite.events');
-      const queue = this.config.get<string>(
-        'RABBITMQ_QUEUE',
-        'account-service.identity-verified',
-      );
+      const queue = this.config.get<string>('RABBITMQ_QUEUE', 'account-service.identity-verified');
 
       await channel.assertExchange(exchange, 'topic', { durable: true });
       await channel.assertQueue(queue, { durable: true });
@@ -121,16 +125,10 @@ export class EventConsumerService implements OnModuleInit, OnModuleDestroy {
         return;
       }
 
-      await this.verifications.upsert(
-        { idUser, verified: true },
-        ['idUser'],
-      );
+      await this.verifications.upsert({ idUser, verified: true }, ['idUser']);
 
       // Si ya existía una cuenta pendiente para ese usuario, se activa.
-      await this.accounts.update(
-        { idUser, status: 'pending' },
-        { status: 'active' },
-      );
+      await this.accounts.update({ idUser, status: 'pending' }, { status: 'active' });
 
       this.logger.log(`identity.verified procesado para idUser=${idUser}`);
       channel.ack(msg);

@@ -38,10 +38,7 @@ export class AccountsController {
   }
 
   @Get(':account_id/limits')
-  getLimits(
-    @Param('account_id', ParseUUIDPipe) accountId: string,
-    @Req() request: Request,
-  ) {
+  getLimits(@Param('account_id', ParseUUIDPipe) accountId: string, @Req() request: Request) {
     return this.accountsService.getLimits(accountId, this.requesterId(request));
   }
 
@@ -55,10 +52,7 @@ export class AccountsController {
   }
 
   @Get(':account_id')
-  findOne(
-    @Param('account_id', ParseUUIDPipe) accountId: string,
-    @Req() request: Request,
-  ) {
+  findOne(@Param('account_id', ParseUUIDPipe) accountId: string, @Req() request: Request) {
     return this.accountsService.findOne(accountId, this.requesterId(request));
   }
 }
