@@ -1,5 +1,7 @@
 # Account Service (`account-service`)
 
+[![CI](https://github.com/Luisortiz2406/banklite-account-service/actions/workflows/ci.yml/badge.svg)](https://github.com/Luisortiz2406/banklite-account-service/actions/workflows/ci.yml)
+
 Cuentas de ahorro de los clientes, sus límites y estado, cuentas de comercio y llaves Bre-B.
 
 Parte de **BankLite**, banco digital académico construido con microservicios. Cada
@@ -174,10 +176,29 @@ Las reglas de negocio se prueban de punta a punta con los scripts de `scripts/pr
 
 ## Despliegue
 
-Desplegado en Railway (raíz del servicio: esta carpeta, `railway.json` con
-`healthcheckPath: /health`). El servicio no tiene dominio público propio: se accede
+Desplegado en Railway **desde este repositorio** (rama `main`): `railway.json` en la
+raíz define el build por `Dockerfile` y el health check en `/health`; cada push a
+`main` redespliega el servicio. El servicio no tiene dominio público propio: se accede
 por el gateway.
 
-- Estado del servicio y de su base: https://api-gateway-production-dd7f.up.railway.app/health (entrada `account-service`: `status` y `database` deben estar en `ok`)
+- Estado del servicio y de su base: [https://api-gateway-production-dd7f.up.railway.app/health](https://api-gateway-production-dd7f.up.railway.app/health) (entrada `account-service`: `status` y `database` deben estar en `ok`)
 - Rutas de este servicio: `https://api-gateway-production-dd7f.up.railway.app/accounts/...`
 - Aplicación web: https://frontend-production-eff3c.up.railway.app
+
+## Repositorios relacionados
+
+Servicios de BankLite con los que se comunica este. **Llama a** / **Lo llama**: HTTP
+por la red interna; **Recibe** / **Envía**: eventos en RabbitMQ. Cada uno vive y se
+despliega desde su propio repositorio.
+
+| Repositorio | Relación con este servicio |
+|---|---|
+| [banklite-api-gateway](https://github.com/Luisortiz2406/banklite-api-gateway) | **Lo llama:** punto de entrada público, le enruta las rutas de este servicio |
+| [banklite-kyc-service](https://github.com/Luisortiz2406/banklite-kyc-service) | **Llama a:** nombre del titular<br>**Recibe:** `identity.verified` (activa la cuenta) |
+| [banklite-auth-service](https://github.com/Luisortiz2406/banklite-auth-service) | **Llama a:** verificación de la clave dinámica (llaves Bre-B) |
+| [banklite-ledger-service](https://github.com/Luisortiz2406/banklite-ledger-service) | **Lo llama:** titular, estado y límites de la cuenta |
+| [banklite-card-service](https://github.com/Luisortiz2406/banklite-card-service) | **Lo llama:** dueño y límite de la cuenta |
+| [banklite-payment-service](https://github.com/Luisortiz2406/banklite-payment-service) | **Lo llama:** cuenta origen y cuenta del convenio |
+| [banklite-transfer-service](https://github.com/Luisortiz2406/banklite-transfer-service) | **Lo llama:** cuentas origen y destino, resolución de llaves Bre-B |
+| [banklite-rewards-service](https://github.com/Luisortiz2406/banklite-rewards-service) | **Lo llama:** cuenta del cliente |
+| [banklite-savings-service](https://github.com/Luisortiz2406/banklite-savings-service) | **Lo llama:** cuenta del cliente |
