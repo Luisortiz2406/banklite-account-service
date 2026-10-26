@@ -19,18 +19,37 @@ import { BrebKey } from '../keys/entities/breb-key.entity';
 import { InternalKeysController, KeysController } from '../keys/keys.controller';
 import { KeysClientsService } from '../keys/keys-clients.service';
 import { KeysService } from '../keys/keys.service';
+import { AuthAccessRelayService } from '../closure/auth-access-relay.service';
+import { ClosureClientsService } from '../closure/closure-clients.service';
+import { ClosureController } from '../closure/closure.controller';
+import { ClosureRequirementsService } from '../closure/closure-requirements.service';
+import { ClosureService } from '../closure/closure.service';
+import { AccountClosure } from '../closure/entities/account-closure.entity';
+import { AuthAccessTask } from '../closure/entities/auth-access-task.entity';
+import { ClosureTicketUse } from '../closure/entities/closure-ticket-use.entity';
+import { EventsModule } from '../events/events.module';
 
 @Module({
   imports: [
     ConfigModule,
     JwtModule.register({}),
-    TypeOrmModule.forFeature([Account, IdentityVerification, AdminAudit, BrebKey]),
+    TypeOrmModule.forFeature([
+      Account,
+      IdentityVerification,
+      AdminAudit,
+      BrebKey,
+      AccountClosure,
+      ClosureTicketUse,
+      AuthAccessTask,
+    ]),
+    EventsModule,
   ],
-  // AdminAccountsController y KeysController primero: si no, /accounts/:account_id
-  // capturaría /accounts/admin y /accounts/keys.
+  // AdminAccountsController, KeysController y ClosureController primero: si no,
+  // /accounts/:account_id capturaría /accounts/admin, /accounts/keys y /accounts/cierre.
   controllers: [
     AdminAccountsController,
     KeysController,
+    ClosureController,
     AccountsController,
     InternalKeysController,
     InternalAccountsController,
@@ -45,6 +64,10 @@ import { KeysService } from '../keys/keys.service';
     StaffAuthGuard,
     KeysService,
     KeysClientsService,
+    ClosureClientsService,
+    ClosureRequirementsService,
+    ClosureService,
+    AuthAccessRelayService,
   ],
 })
 export class AccountsModule {}

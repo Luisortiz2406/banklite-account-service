@@ -52,6 +52,10 @@ export class Account {
   @Column({ name: 'monthly_limit', type: 'numeric', precision: 18, scale: 2, default: 0 })
   monthlyLimit: number;
 
+  // Cuándo se cerró (cancelación del cliente). Las cuentas cerradas no se borran.
+  @Column({ name: 'closed_at', type: 'timestamptz', nullable: true })
+  closedAt: Date | null;
+
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
 
