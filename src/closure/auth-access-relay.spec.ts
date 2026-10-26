@@ -19,14 +19,21 @@ describe('Espera entre reintentos hacia auth', () => {
 /** Cerrar el acceso en auth: tarea guardada en la base, con reintentos que sobreviven a un reinicio. */
 describeWithDb('Cierre del acceso en auth (PostgreSQL)', () => {
   let dataSource: DataSource;
+  // La conexión que creó createTestDatabase: drop() la cierra antes de borrar la base.
+  let original: DataSource;
   let drop: () => Promise<void>;
 
   beforeAll(async () => {
     ({ dataSource, drop } = await createTestDatabase('account_relay', CLOSURE_ENTITIES));
+    original = dataSource;
   });
 
   afterAll(async () => {
-    if (!dataSource.isInitialized) await dataSource.initialize();
+    // Después del "reinicio" la conexión vigente es otra: se cierra y se reabre la original.
+    if (dataSource !== original) {
+      await dataSource.destroy();
+      await original.initialize();
+    }
     await drop();
   });
 
