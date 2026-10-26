@@ -2,14 +2,7 @@ import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AccountsModule } from './accounts/accounts.module';
-import { Account } from './accounts/entities/account.entity';
-import { IdentityVerification } from './accounts/entities/identity-verification.entity';
-import { AdminAudit } from './common/staff/admin-audit.entity';
-import { BrebKey } from './keys/entities/breb-key.entity';
-import { AccountClosure } from './closure/entities/account-closure.entity';
-import { AuthAccessTask } from './closure/entities/auth-access-task.entity';
-import { ClosureTicketUse } from './closure/entities/closure-ticket-use.entity';
-import { AccountOutbox } from './events/account-outbox.entity';
+import { ENTITIES } from './entities';
 import { HealthController } from './health.controller';
 import { validateEnv } from './config/env.validation';
 
@@ -51,16 +44,7 @@ function validateClosureSecret(config: Record<string, unknown>) {
       useFactory: (config: ConfigService) => ({
         type: 'postgres',
         url: config.get<string>('DATABASE_URL'),
-        entities: [
-          Account,
-          IdentityVerification,
-          AdminAudit,
-          BrebKey,
-          AccountClosure,
-          ClosureTicketUse,
-          AuthAccessTask,
-          AccountOutbox,
-        ],
+        entities: ENTITIES,
         synchronize: true, // demo académica; en producción usar migraciones
         logging: false,
       }),

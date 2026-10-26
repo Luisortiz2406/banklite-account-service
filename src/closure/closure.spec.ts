@@ -11,12 +11,12 @@ import { buildClosure, CLOSURE_ENTITIES, fakeClients, FakeClients, seedAccount }
 import { createTestDatabase, describeWithDb, truncateAll } from '../testing/test-database';
 import { ClosureService } from './closure.service';
 import { AccountClosure } from './entities/account-closure.entity';
-import { AuthAccessTask } from './entities/auth-access-task.entity';
+import { ClosureTask } from './entities/closure-task.entity';
+import { BALANCE_CHECK_DELAY_MS } from './closure-tasks-relay.service';
 import { ClosureTicketUse } from './entities/closure-ticket-use.entity';
 
 const ANA = '11111111-1111-4111-8111-111111111111';
 const CARLOS = '22222222-2222-4222-8222-222222222222';
-const TOKEN = 'token-de-acceso-de-prueba';
 
 /** Cancelar la cuenta: ticket de un solo uso, requisitos al cerrar y lo que queda guardado. */
 describeWithDb('Cancelar la cuenta en account-service (PostgreSQL)', () => {
@@ -48,7 +48,7 @@ describeWithDb('Cancelar la cuenta en account-service (PostgreSQL)', () => {
   };
 
   describe('Cierre', () => {
-    it('cierra todas las cuentas del cliente, libera sus llaves y guarda el evento y la tarea de auth', async () => {
+    it('cierra todas las cuentas del cliente, libera sus llaves y guarda el evento y las tareas posteriores', async () => {
       const principal = await seedAccount(dataSource, ANA);
       const bloqueadaPorElla = await seedAccount(dataSource, ANA, { status: 'blocked', blockedBy: 'user' });
       const deCarlos = await seedAccount(dataSource, CARLOS);
@@ -57,7 +57,7 @@ describeWithDb('Cancelar la cuenta en account-service (PostgreSQL)', () => {
         { idUser: CARLOS, type: 'celular', key: '3109876543', accountId: deCarlos.id, holderName: 'Car••• Pé•••' },
       ] as BrebKey[]);
 
-      const result = await service.close(ANA, TOKEN, signTestTicket(ANA));
+      const result = await service.close(ANA, signTestTicket(ANA));
 
       expect(result.cerrada).toBe(true);
       expect(result.cuentas.sort()).toEqual([principal.accountNumber, bloqueadaPorElla.accountNumber].sort());
@@ -76,16 +76,22 @@ describeWithDb('Cancelar la cuenta en account-service (PostgreSQL)', () => {
       expect(events[0].publishedAt).toBeNull();
       expect(events[0].payload).toEqual({ idUser: ANA, cerradaEn: result.cerradaEn, cuentas: result.cuentas });
 
-      const tasks = await dataSource.getRepository(AuthAccessTask).find();
-      expect(tasks).toHaveLength(1);
-      expect(tasks[0]).toMatchObject({ idUser: ANA, attempts: 0, doneAt: null });
-      expect(tasks[0].closedAt.toISOString()).toBe(result.cerradaEn);
+      const tasks = await dataSource.getRepository(ClosureTask).find({ order: { kind: 'ASC' } });
+      expect(tasks.map((t) => t.kind)).toEqual(['auth_access', 'balance_check']);
+      const cerradaEn = new Date(result.cerradaEn).getTime();
+      for (const t of tasks) {
+        expect(t).toMatchObject({ idUser: ANA, attempts: 0, doneAt: null });
+        expect(t.closedAt.getTime()).toBe(cerradaEn);
+      }
+      // Auth: de inmediato. Saldo: un rato después, cuando ya terminó lo que estaba en curso.
+      expect(tasks[0].nextAttemptAt.getTime()).toBe(cerradaEn);
+      expect(tasks[1].nextAttemptAt.getTime()).toBe(cerradaEn + BALANCE_CHECK_DELAY_MS);
       expect(relayKick.run).toHaveBeenCalled();
     });
 
     it('quien canceló no puede abrir otra cuenta', async () => {
       await seedAccount(dataSource, ANA);
-      await service.close(ANA, TOKEN, signTestTicket(ANA));
+      await service.close(ANA, signTestTicket(ANA));
       const accounts = new AccountsService(
         dataSource.getRepository(Account),
         dataSource.getRepository(IdentityVerification),
@@ -98,17 +104,17 @@ describeWithDb('Cancelar la cuenta en account-service (PostgreSQL)', () => {
   });
 
   describe('Ticket de un solo uso', () => {
-    it('reenviar el mismo ticket devuelve el mismo cierre, sin un segundo evento ni una segunda tarea', async () => {
+    it('reenviar el mismo ticket devuelve el mismo cierre, sin un segundo evento ni tareas repetidas', async () => {
       await seedAccount(dataSource, ANA);
       const ticket = signTestTicket(ANA);
 
-      const first = await service.close(ANA, TOKEN, ticket);
-      const again = await service.close(ANA, TOKEN, ticket);
+      const first = await service.close(ANA, ticket);
+      const again = await service.close(ANA, ticket);
 
       expect(again).toEqual(first);
       expect(await count(AccountClosure)).toBe(1);
       expect(await count(AccountOutbox)).toBe(1);
-      expect(await count(AuthAccessTask)).toBe(1);
+      expect(await count(ClosureTask)).toBe(2);
       // La repetición no volvió a revisar requisitos: el ticket no se procesó dos veces.
       expect(clients.fraudSummary).toHaveBeenCalledTimes(1);
     });
@@ -117,7 +123,7 @@ describeWithDb('Cancelar la cuenta en account-service (PostgreSQL)', () => {
       await seedAccount(dataSource, ANA);
       const ticket = signTestTicket(ANA);
 
-      const results = await Promise.allSettled(Array.from({ length: 5 }, () => service.close(ANA, TOKEN, ticket)));
+      const results = await Promise.allSettled(Array.from({ length: 5 }, () => service.close(ANA, ticket)));
 
       const ok = results.filter((r) => r.status === 'fulfilled');
       const rejected = results.filter((r): r is PromiseRejectedResult => r.status === 'rejected');
@@ -127,15 +133,15 @@ describeWithDb('Cancelar la cuenta en account-service (PostgreSQL)', () => {
       expect(await count(ClosureTicketUse)).toBe(1);
       expect(await count(AccountClosure)).toBe(1);
       expect(await count(AccountOutbox)).toBe(1);
-      expect(await count(AuthAccessTask)).toBe(1);
+      expect(await count(ClosureTask)).toBe(2);
     });
 
-    it('dos tickets distintos a la vez: un solo cierre, un solo evento y una sola tarea', async () => {
+    it('dos tickets distintos a la vez: un solo cierre, un solo evento y un solo par de tareas', async () => {
       await seedAccount(dataSource, ANA);
 
       const results = await Promise.allSettled([
-        service.close(ANA, TOKEN, signTestTicket(ANA)),
-        service.close(ANA, TOKEN, signTestTicket(ANA)),
+        service.close(ANA, signTestTicket(ANA)),
+        service.close(ANA, signTestTicket(ANA)),
       ]);
 
       expect(results.every((r) => r.status === 'fulfilled')).toBe(true);
@@ -143,17 +149,17 @@ describeWithDb('Cancelar la cuenta en account-service (PostgreSQL)', () => {
       expect(a.value.cerradaEn).toBe(b.value.cerradaEn);
       expect(await count(AccountClosure)).toBe(1);
       expect(await count(AccountOutbox)).toBe(1);
-      expect(await count(AuthAccessTask)).toBe(1);
+      expect(await count(ClosureTask)).toBe(2);
     });
 
     it('un ticket que ya se gastó en un intento rechazado no sirve después, aunque ya se cumplan los requisitos', async () => {
       const cuenta = await seedAccount(dataSource, ANA);
       const ticket = signTestTicket(ANA);
       clients.balances.set(cuenta.id, 15_000);
-      await expect(service.close(ANA, TOKEN, ticket)).rejects.toBeInstanceOf(ConflictException);
+      await expect(service.close(ANA, ticket)).rejects.toBeInstanceOf(ConflictException);
 
       clients.balances.set(cuenta.id, 0);
-      await expect(service.close(ANA, TOKEN, ticket)).rejects.toThrow('Esta confirmación ya se usó.');
+      await expect(service.close(ANA, ticket)).rejects.toThrow('Esta confirmación ya se usó.');
       expect(await statusOf(cuenta.id)).toBe('active');
       expect(await count(AccountClosure)).toBe(0);
     });
@@ -169,7 +175,7 @@ describeWithDb('Cancelar la cuenta en account-service (PostgreSQL)', () => {
         signTestTicket(ANA, { aud: 'auth-service' }),
       ];
       for (const ticket of invalid) {
-        await expect(service.close(ANA, TOKEN, ticket)).rejects.toBeInstanceOf(ForbiddenException);
+        await expect(service.close(ANA, ticket)).rejects.toBeInstanceOf(ForbiddenException);
       }
       expect(await count(ClosureTicketUse)).toBe(0);
       expect(await statusOf(cuenta.id)).toBe('active');
@@ -179,30 +185,30 @@ describeWithDb('Cancelar la cuenta en account-service (PostgreSQL)', () => {
   describe('Requisitos al momento de cerrar', () => {
     it('si después de la revisión llegó saldo, no cierra y dice qué falta', async () => {
       const cuenta = await seedAccount(dataSource, ANA);
-      const antes = await service.requisitos(ANA, TOKEN);
+      const antes = await service.requisitos(ANA);
       expect(antes.puedeCancelar).toBe(true);
 
       // Entre la pantalla de requisitos y la confirmación entra una transferencia.
       clients.balances.set(cuenta.id, 250_000);
       const ticket = signTestTicket(ANA);
-      const error = await service.close(ANA, TOKEN, ticket).catch((e) => e);
+      const error = await service.close(ANA, ticket).catch((e) => e);
 
       expect(error).toBeInstanceOf(ConflictException);
       expect(error.getResponse().pendientes).toEqual([
         expect.objectContaining({ codigo: 'saldo', cuentaId: cuenta.id, saldo: 250_000 }),
       ]);
-      expect(clients.balance).toHaveBeenLastCalledWith(cuenta.id, TOKEN);
+      expect(clients.balance).toHaveBeenLastCalledWith(cuenta.id);
       expect(await statusOf(cuenta.id)).toBe('active');
       expect(await ticketResult(ticket)).toBe('requirements');
       expect(await count(AccountOutbox)).toBe(0);
-      expect(await count(AuthAccessTask)).toBe(0);
+      expect(await count(ClosureTask)).toBe(0);
     });
 
     it('si se abrió una revisión de seguridad o una recarga entre tanto, tampoco cierra', async () => {
       const cuenta = await seedAccount(dataSource, ANA);
       clients.fraudSummary.mockResolvedValueOnce({ alertasAbiertas: 1, sinPendientes: false });
       const ticket = signTestTicket(ANA);
-      const error = await service.close(ANA, TOKEN, ticket).catch((e) => e);
+      const error = await service.close(ANA, ticket).catch((e) => e);
       expect(error.getResponse().pendientes.map((p: any) => p.codigo)).toEqual(['revision_seguridad']);
       expect(await ticketResult(ticket)).toBe('requirements');
 
@@ -211,7 +217,7 @@ describeWithDb('Cancelar la cuenta en account-service (PostgreSQL)', () => {
         recargasEnRevision: 0,
         sinPendientes: false,
       });
-      const error2 = await service.close(ANA, TOKEN, signTestTicket(ANA)).catch((e) => e);
+      const error2 = await service.close(ANA, signTestTicket(ANA)).catch((e) => e);
       expect(error2.getResponse().pendientes.map((p: any) => p.codigo)).toEqual(['recargas_pendientes']);
       expect(await statusOf(cuenta.id)).toBe('active');
     });
@@ -220,7 +226,7 @@ describeWithDb('Cancelar la cuenta en account-service (PostgreSQL)', () => {
       const cuenta = await seedAccount(dataSource, ANA);
       clients.savingsSummary.mockRejectedValueOnce(new ServiceUnavailableException('savings caído'));
       const ticket = signTestTicket(ANA);
-      await expect(service.close(ANA, TOKEN, ticket)).rejects.toBeInstanceOf(ServiceUnavailableException);
+      await expect(service.close(ANA, ticket)).rejects.toBeInstanceOf(ServiceUnavailableException);
       expect(await statusOf(cuenta.id)).toBe('active');
       expect(await ticketResult(ticket)).toBe('error');
       expect(await count(AccountOutbox)).toBe(0);
@@ -233,7 +239,7 @@ describeWithDb('Cancelar la cuenta en account-service (PostgreSQL)', () => {
         await dataSource.getRepository(Account).update(cuenta.id, { status: 'blocked', blockedBy: 'bank' });
         return { alertasAbiertas: 0, sinPendientes: true };
       });
-      await expect(service.close(ANA, TOKEN, signTestTicket(ANA))).rejects.toThrow('El banco bloqueó');
+      await expect(service.close(ANA, signTestTicket(ANA))).rejects.toThrow('El banco bloqueó');
       expect(await statusOf(cuenta.id)).toBe('blocked');
       expect(await count(AccountClosure)).toBe(0);
     });
@@ -256,7 +262,7 @@ describeWithDb('Cancelar la cuenta en account-service (PostgreSQL)', () => {
         sinPendientes: false,
       });
 
-      const req = await service.requisitos(ANA, TOKEN);
+      const req = await service.requisitos(ANA);
 
       expect(req.puedeCancelar).toBe(false);
       expect(req.cuentas).toHaveLength(2);
@@ -282,7 +288,7 @@ describeWithDb('Cancelar la cuenta en account-service (PostgreSQL)', () => {
         recargasEnRevision: 0,
         sinPendientes: false,
       });
-      const req = await service.requisitos(ANA, TOKEN);
+      const req = await service.requisitos(ANA);
       expect(req.puedeCancelar).toBe(false);
       expect(req.pendientes.map((p) => p.codigo)).toEqual(['operacion_en_proceso']);
     });

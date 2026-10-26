@@ -19,13 +19,16 @@ import { BrebKey } from '../keys/entities/breb-key.entity';
 import { InternalKeysController, KeysController } from '../keys/keys.controller';
 import { KeysClientsService } from '../keys/keys-clients.service';
 import { KeysService } from '../keys/keys.service';
-import { AuthAccessRelayService } from '../closure/auth-access-relay.service';
+import { ClosureAlertsController } from '../closure/closure-alerts.controller';
+import { ClosureAlertsService } from '../closure/closure-alerts.service';
+import { ClosureTasksRelayService } from '../closure/closure-tasks-relay.service';
 import { ClosureClientsService } from '../closure/closure-clients.service';
 import { ClosureController } from '../closure/closure.controller';
 import { ClosureRequirementsService } from '../closure/closure-requirements.service';
 import { ClosureService } from '../closure/closure.service';
 import { AccountClosure } from '../closure/entities/account-closure.entity';
-import { AuthAccessTask } from '../closure/entities/auth-access-task.entity';
+import { ClosureBalanceAlert } from '../closure/entities/closure-balance-alert.entity';
+import { ClosureTask } from '../closure/entities/closure-task.entity';
 import { ClosureTicketUse } from '../closure/entities/closure-ticket-use.entity';
 import { EventsModule } from '../events/events.module';
 
@@ -40,13 +43,15 @@ import { EventsModule } from '../events/events.module';
       BrebKey,
       AccountClosure,
       ClosureTicketUse,
-      AuthAccessTask,
+      ClosureTask,
+      ClosureBalanceAlert,
     ]),
     EventsModule,
   ],
-  // AdminAccountsController, KeysController y ClosureController primero: si no,
-  // /accounts/:account_id capturaría /accounts/admin, /accounts/keys y /accounts/cierre.
+  // Los controladores de /accounts/admin, /accounts/keys y /accounts/cierre primero:
+  // si no, /accounts/:account_id los capturaría.
   controllers: [
+    ClosureAlertsController,
     AdminAccountsController,
     KeysController,
     ClosureController,
@@ -67,7 +72,8 @@ import { EventsModule } from '../events/events.module';
     ClosureClientsService,
     ClosureRequirementsService,
     ClosureService,
-    AuthAccessRelayService,
+    ClosureTasksRelayService,
+    ClosureAlertsService,
   ],
 })
 export class AccountsModule {}

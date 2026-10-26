@@ -101,21 +101,6 @@ CREATE TABLE public.admin_audit (
 
 
 --
--- Name: auth_access_tasks; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.auth_access_tasks (
-    id_user uuid NOT NULL,
-    closed_at timestamp with time zone NOT NULL,
-    attempts integer DEFAULT 0 NOT NULL,
-    next_attempt_at timestamp with time zone NOT NULL,
-    done_at timestamp with time zone,
-    last_error character varying(500),
-    created_at timestamp with time zone DEFAULT now() NOT NULL
-);
-
-
---
 -- Name: breb_keys; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -126,6 +111,42 @@ CREATE TABLE public.breb_keys (
     id_user uuid NOT NULL,
     account_id uuid NOT NULL,
     holder_name character varying(80) NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+--
+-- Name: closure_balance_alerts; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.closure_balance_alerts (
+    id uuid DEFAULT public.uuid_generate_v4() NOT NULL,
+    id_user uuid NOT NULL,
+    account_id uuid NOT NULL,
+    account_number character varying(11),
+    currency character varying(3) NOT NULL,
+    balance numeric(18,2) NOT NULL,
+    closed_at timestamp with time zone NOT NULL,
+    detected_at timestamp with time zone DEFAULT now() NOT NULL,
+    status character varying(10) DEFAULT 'open'::character varying NOT NULL,
+    resolved_at timestamp with time zone,
+    resolved_by character varying(80),
+    resolution_note character varying(300)
+);
+
+
+--
+-- Name: closure_tasks; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.closure_tasks (
+    id_user uuid NOT NULL,
+    kind character varying(20) NOT NULL,
+    closed_at timestamp with time zone NOT NULL,
+    attempts integer DEFAULT 0 NOT NULL,
+    next_attempt_at timestamp with time zone NOT NULL,
+    done_at timestamp with time zone,
+    last_error character varying(500),
     created_at timestamp with time zone DEFAULT now() NOT NULL
 );
 
@@ -189,19 +210,27 @@ COPY public.admin_audit (id, staff_id, staff_username, action, target_type, targ
 
 
 --
--- Data for Name: auth_access_tasks; Type: TABLE DATA; Schema: public; Owner: -
---
-
-COPY public.auth_access_tasks (id_user, closed_at, attempts, next_attempt_at, done_at, last_error, created_at) FROM stdin;
-\.
-
-
---
 -- Data for Name: breb_keys; Type: TABLE DATA; Schema: public; Owner: -
 --
 
 COPY public.breb_keys (id, key, type, id_user, account_id, holder_name, created_at) FROM stdin;
 3b000000-0000-4000-8000-000000000001	ana.perez@banklite.test	correo	11111111-1111-4111-8111-111111111111	3a000000-0000-4000-8000-000000000001	Ana Pérez	2026-10-01 14:30:00+00
+\.
+
+
+--
+-- Data for Name: closure_balance_alerts; Type: TABLE DATA; Schema: public; Owner: -
+--
+
+COPY public.closure_balance_alerts (id, id_user, account_id, account_number, currency, balance, closed_at, detected_at, status, resolved_at, resolved_by, resolution_note) FROM stdin;
+\.
+
+
+--
+-- Data for Name: closure_tasks; Type: TABLE DATA; Schema: public; Owner: -
+--
+
+COPY public.closure_tasks (id_user, kind, closed_at, attempts, next_attempt_at, done_at, last_error, created_at) FROM stdin;
 \.
 
 
@@ -221,6 +250,14 @@ COPY public.identity_verifications (id_user, verified, received_at) FROM stdin;
 11111111-1111-4111-8111-111111111111	t	2026-10-01 09:01:00
 22222222-2222-4222-8222-222222222222	t	2026-10-01 09:06:00
 \.
+
+
+--
+-- Name: closure_tasks PK_0c01f6e6a51a38fc2493d61c1a2; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.closure_tasks
+    ADD CONSTRAINT "PK_0c01f6e6a51a38fc2493d61c1a2" PRIMARY KEY (id_user, kind);
 
 
 --
@@ -272,19 +309,19 @@ ALTER TABLE ONLY public.closure_ticket_uses
 
 
 --
--- Name: auth_access_tasks PK_9da567f73c8fde7eb7c229f73f2; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.auth_access_tasks
-    ADD CONSTRAINT "PK_9da567f73c8fde7eb7c229f73f2" PRIMARY KEY (id_user);
-
-
---
 -- Name: account_outbox PK_f98565aca6d741ce801f5edbba4; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.account_outbox
     ADD CONSTRAINT "PK_f98565aca6d741ce801f5edbba4" PRIMARY KEY (id);
+
+
+--
+-- Name: closure_balance_alerts PK_cfa4ec76897945fe313ab332f69; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.closure_balance_alerts
+    ADD CONSTRAINT "PK_cfa4ec76897945fe313ab332f69" PRIMARY KEY (id);
 
 
 --
@@ -330,10 +367,17 @@ CREATE INDEX idx_admin_audit_created ON public.admin_audit USING btree (created_
 
 
 --
--- Name: idx_auth_access_tasks_due; Type: INDEX; Schema: public; Owner: -
+-- Name: idx_closure_balance_alerts_status; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX idx_auth_access_tasks_due ON public.auth_access_tasks USING btree (done_at, next_attempt_at);
+CREATE INDEX idx_closure_balance_alerts_status ON public.closure_balance_alerts USING btree (status, detected_at);
+
+
+--
+-- Name: idx_closure_tasks_due; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_closure_tasks_due ON public.closure_tasks USING btree (done_at, next_attempt_at);
 
 
 --
@@ -355,6 +399,13 @@ CREATE UNIQUE INDEX uq_breb_keys_key ON public.breb_keys USING btree (key);
 --
 
 CREATE UNIQUE INDEX uq_breb_keys_user_type ON public.breb_keys USING btree (id_user, type);
+
+
+--
+-- Name: uq_closure_balance_alerts_account; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX uq_closure_balance_alerts_account ON public.closure_balance_alerts USING btree (account_id);
 
 
 --

@@ -1,29 +1,17 @@
 import { ConfigService } from '@nestjs/config';
 import { DataSource } from 'typeorm';
 import { Account } from '../accounts/entities/account.entity';
-import { IdentityVerification } from '../accounts/entities/identity-verification.entity';
-import { AuthAccessRelayService } from '../closure/auth-access-relay.service';
 import { ClosureClientsService } from '../closure/closure-clients.service';
 import { ClosureRequirementsService } from '../closure/closure-requirements.service';
+import { ClosureTasksRelayService } from '../closure/closure-tasks-relay.service';
 import { ClosureService } from '../closure/closure.service';
-import { AccountClosure } from '../closure/entities/account-closure.entity';
-import { AuthAccessTask } from '../closure/entities/auth-access-task.entity';
-import { ClosureTicketUse } from '../closure/entities/closure-ticket-use.entity';
-import { AccountOutbox } from '../events/account-outbox.entity';
+import { ENTITIES } from '../entities';
 import { EventPublisherService } from '../events/event-publisher.service';
 import { OutboxService } from '../events/outbox.service';
-import { BrebKey } from '../keys/entities/breb-key.entity';
 import { TEST_CLOSURE_SECRET } from './closure-ticket.fixture';
 
-export const CLOSURE_ENTITIES = [
-  Account,
-  IdentityVerification,
-  BrebKey,
-  AccountClosure,
-  ClosureTicketUse,
-  AuthAccessTask,
-  AccountOutbox,
-];
+// Todas las tablas del servicio, igual que en producción.
+export const CLOSURE_ENTITIES = ENTITIES;
 
 /** Respuestas de los otros servicios, configurables en cada prueba. */
 export function fakeClients() {
@@ -55,7 +43,7 @@ export function closureConfig(secret: string | undefined = TEST_CLOSURE_SECRET) 
 /**
  * ClosureService con las dependencias reales sobre la base de prueba; solo se
  * simulan las llamadas HTTP. RabbitMQ "caído": los eventos quedan en el outbox.
- * El relevo de auth que dispara el cierre es un stub; las pruebas del relevo
+ * El relevo de tareas que dispara el cierre es un stub; las pruebas del relevo
  * crean el suyo para controlar cuándo corre.
  */
 export function buildClosure(dataSource: DataSource, clients: FakeClients) {
@@ -70,7 +58,7 @@ export function buildClosure(dataSource: DataSource, clients: FakeClients) {
     closureConfig(),
     requirements,
     outbox,
-    relayKick as unknown as AuthAccessRelayService,
+    relayKick as unknown as ClosureTasksRelayService,
   );
   return { service, requirements, relayKick };
 }

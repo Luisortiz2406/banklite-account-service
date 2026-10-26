@@ -25,10 +25,10 @@ export interface FraudClosureSummary {
 const UNAVAILABLE = 'No pudimos revisar todo lo necesario para cancelar tu cuenta. Inténtalo de nuevo en unos minutos.';
 
 /**
- * Llamadas que necesita la cancelación de la cuenta:
- * - ledger (con el token del propio cliente): saldo de cada cuenta.
- * - savings, deposit y fraud (red interna, INTERNAL_API_KEY de account-service):
- *   su resumen-cierre, lo que impediría cancelar.
+ * Llamadas que necesita la cancelación de la cuenta, todas por la red interna con
+ * la INTERNAL_API_KEY de account-service:
+ * - ledger: saldo de cada cuenta (antes de cerrar y otra vez después del cierre).
+ * - savings, deposit y fraud: su resumen-cierre, lo que impediría cancelar.
  * - auth (red interna): cerrar el acceso cuando las cuentas ya quedaron cerradas.
  * Si alguno no responde, no se puede cancelar (nunca se asume que está todo bien).
  */
@@ -36,11 +36,11 @@ const UNAVAILABLE = 'No pudimos revisar todo lo necesario para cancelar tu cuent
 export class ClosureClientsService {
   constructor(private readonly config: ConfigService) {}
 
-  async balance(accountId: string, accessToken: string): Promise<number> {
-    const body = await callService<{ balance?: number }>(
-      `${this.url('LEDGER_SERVICE_URL', 'http://localhost:3006')}/ledger/accounts/${encodeURIComponent(accountId)}/balance`,
-      { headers: { Authorization: `Bearer ${accessToken}` }, timeoutMs: HTTP_TIMEOUTS.read, retry: true },
-      { service: 'Ledger Service', internal: false, unavailable: UNAVAILABLE },
+  /** Saldo de una cuenta (GET /ledger/internal/accounts/:id/balance; ledger solo se lo permite a account). */
+  async balance(accountId: string): Promise<number> {
+    const body = await this.internalGet<{ balance?: number }>(
+      'Ledger Service',
+      `${this.url('LEDGER_SERVICE_URL', 'http://localhost:3006')}/ledger/internal/accounts/${encodeURIComponent(accountId)}/balance`,
     );
     const balance = Number(body?.balance);
     if (!Number.isFinite(balance)) throw new ServiceUnavailableException(UNAVAILABLE);

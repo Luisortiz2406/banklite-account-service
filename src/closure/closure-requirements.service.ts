@@ -57,10 +57,10 @@ export class ClosureRequirementsService {
     });
   }
 
-  async check(idUser: string, accessToken: string): Promise<ClosureRequirements> {
+  async check(idUser: string): Promise<ClosureRequirements> {
     const open = await this.openAccounts(idUser);
     const [balances, savings, deposits, fraud] = await Promise.all([
-      Promise.all(open.map((account) => this.clients.balance(account.id, accessToken))),
+      Promise.all(open.map((account) => this.clients.balance(account.id))),
       this.clients.savingsSummary(idUser),
       this.clients.depositsSummary(idUser),
       this.clients.fraudSummary(idUser),

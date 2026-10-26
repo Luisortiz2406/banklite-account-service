@@ -35,7 +35,7 @@ parte del cliente (cierra todas sus cuentas y avisa al resto de servicios).
 |---|---|
 | Publica eventos | `account.closed` (outbox) → card y notification |
 | Consume eventos | `identity.verified` (kyc) → crea/activa la cuenta (cola con reintentos y DLQ) |
-| Llama a | auth-service: clave dinámica (llaves Bre-B) y cierre del acceso al cancelar<br>kyc-service: nombre del titular<br>ledger-service: saldo de cada cuenta al cancelar<br>savings, deposit y fraud: `resumen-cierre` (lo que impide cancelar) |
+| Llama a | auth-service: clave dinámica (llaves Bre-B) y cierre del acceso al cancelar<br>kyc-service: nombre del titular<br>ledger-service: saldo de cada cuenta al cancelar y otra vez después del cierre (`/ledger/internal`, solo lectura)<br>savings, deposit y fraud: `resumen-cierre` (lo que impide cancelar) |
 | Lo llaman | ledger, card, payment y transfer: datos de la cuenta (`/internal/accounts/*`)<br>api-gateway (rutas `/accounts/*`) |
 | Integraciones externas | — |
 
@@ -62,7 +62,8 @@ rutas internas.
 | `account_closures` | Una fila por cliente que canceló: fecha, cuentas cerradas y ticket usado. |
 | `closure_ticket_uses` | Tickets de cierre ya usados (`jti`, clave primaria): un solo uso. |
 | `account_outbox` | Eventos por publicar en RabbitMQ (`account.closed`), guardados en la misma transacción. |
-| `auth_access_tasks` | Tarea "cerrar el acceso en auth" de cada cierre: intentos, próximo intento y último error. |
+| `closure_tasks` | Lo que queda por hacer después de cada cierre (`auth_access`: cerrar el acceso en auth; `balance_check`: volver a revisar el saldo): intentos, próximo intento y último error. |
+| `closure_balance_alerts` | Alertas «cuenta cerrada con saldo» para cumplimiento: cuenta, saldo detectado, estado y quién la resolvió. |
 
 En `database/`:
 
@@ -146,12 +147,27 @@ A través del gateway las rutas son las mismas (`http://localhost:8080/accounts/
    - **vuelve a revisar los requisitos** en ese momento (no confía en la pantalla anterior); si un
      servicio no responde, no cierra;
    - en **una transacción**: cuentas en `closed` con `closed_at`, llaves Bre-B borradas, fila en
-     `account_closures`, evento `account.closed` en el outbox y tarea en `auth_access_tasks`.
+     `account_closures`, evento `account.closed` en el outbox y dos tareas en `closure_tasks`.
 4. Después, sin que el cliente espere:
    - el outbox publica `account.closed` → `data: { idUser, cerradaEn, cuentas: [accountNumber] }`;
-   - el relevo llama a `POST /internal/auth/cierre-acceso` (idempotente). Si falla, reintenta con
-     espera creciente (10 s, 20 s, 40 s… hasta 1 h) y nunca se rinde; como la tarea vive en la base,
-     los reintentos siguen después de un reinicio.
+   - tarea `auth_access`: llama a `POST /internal/auth/cierre-acceso` (idempotente);
+   - tarea `balance_check`, **30 s después del cierre**: vuelve a consultar el saldo de cada cuenta
+     cerrada en el ledger. Si no es $0 (p. ej. una transferencia que leyó la cuenta como activa
+     justo antes del cierre), abre la alerta **«cuenta cerrada con saldo»** para cumplimiento.
+   - Si una tarea falla, se reintenta con espera creciente (10 s, 20 s, 40 s… hasta 1 h) y nunca se
+     rinde; como vive en la base, los reintentos siguen después de un reinicio.
+
+### Alerta «cuenta cerrada con saldo» (cumplimiento)
+
+- Dónde se ve: en el panel administrativo, vista **Cumplimiento** (`admin/cumplimiento.html`, lista
+  de alertas abiertas con cliente, cuenta, saldo y fecha; la vista llega con el PR del frontend de la
+  cancelación), servida por `GET /accounts/admin/closure-alerts`. Solo roles
+  `compliance` y `admin`. También queda un `error` en los logs del servicio («Cuenta cerrada con saldo»).
+- Cómo se resuelve: cumplimiento devuelve el dinero a mano con el **reverso** del movimiento que
+  llegó (panel → Movimientos → Reversar; el reverso del ledger funciona aunque la cuenta esté
+  cerrada) y luego marca la alerta con `POST /accounts/admin/closure-alerts/:id/resolve` y el motivo.
+  No se puede resolver mientras el ledger muestre saldo; queda quién la resolvió y una entrada en
+  la bitácora (`closure_alert.resolved`). La cuenta sigue cerrada.
 
 Quien canceló no puede abrir otra cuenta con el mismo usuario.
 
@@ -163,6 +179,8 @@ Quien canceló no puede abrir otra cuenta con el mismo usuario.
 | GET | `/accounts/admin/accounts/:id` | cualquier empleado | Detalle de una cuenta. |
 | PATCH | `/accounts/admin/accounts/:id/status` | admin | Bloquea, activa o cierra una cuenta. |
 | PATCH | `/accounts/admin/accounts/:id/limits` | admin | Cambia los límites de una cuenta. |
+| GET | `/accounts/admin/closure-alerts` | compliance, admin | Alertas «cuenta cerrada con saldo» (`?status=` `open`, `resolved` o `all`; por defecto `open`) y cuántas hay abiertas. |
+| POST | `/accounts/admin/closure-alerts/:id/resolve` | compliance, admin | Marca la alerta como resuelta (`{ reason }`). Exige saldo $0 en el ledger. |
 | GET | `/accounts/admin/audit` | cualquier empleado | Bitácora de acciones del panel en este servicio (quién, rol, qué y cuándo). |
 | GET | `/accounts/admin/dlq` | cualquier empleado | Mensajes en la cola de errores (DLQ). |
 | GET | `/accounts/admin/dlq/messages` | cualquier empleado | Contenido de los mensajes de la DLQ. |
@@ -196,11 +214,21 @@ todas se configuran como variables del servicio, nunca en el código.
 | `INTERNAL_API_KEY` | **Sí** (no arranca sin ella) | — | Clave interna **propia** de este servicio; la manda en `x-internal-key` al llamar a otros. |
 | `AUTH_SERVICE_URL` | Sí | `http://localhost:3001` | URL interna de auth-service. |
 | `KYC_SERVICE_URL` | Sí | `http://localhost:3003` | URL interna de kyc-service. |
-| `LEDGER_SERVICE_URL` | Sí | `http://localhost:3006` | URL interna de ledger-service (saldo al cancelar la cuenta). |
-| `SAVINGS_SERVICE_URL` | Sí | `http://localhost:3013` | URL interna de savings-service (`resumen-cierre`). |
-| `DEPOSIT_SERVICE_URL` | Sí | `http://localhost:3014` | URL interna de deposit-service (`resumen-cierre`). |
-| `FRAUD_SERVICE_URL` | Sí | `http://localhost:3009` | URL interna de fraud-service (`resumen-cierre`). |
-| `CLOSURE_TICKET_SECRET` | Para cancelar cuentas | — | El mismo valor que en auth-service; verifica el ticket de cierre. Distinto de `JWT_SECRET`. Sin ella el servicio arranca, pero cancelar responde 503. |
+| `LEDGER_SERVICE_URL` | Sí | `http://localhost:3006` | URL interna de ledger-service (saldo antes y después de cancelar). Railway: `http://${{ledger-service.RAILWAY_PRIVATE_DOMAIN}}:3006`. |
+| `SAVINGS_SERVICE_URL` | Sí | `http://localhost:3013` | URL interna de savings-service (`resumen-cierre`). Railway: `http://${{savings-service.RAILWAY_PRIVATE_DOMAIN}}:3013`. |
+| `DEPOSIT_SERVICE_URL` | Sí | `http://localhost:3014` | URL interna de deposit-service (`resumen-cierre`). Railway: `http://${{deposit-service.RAILWAY_PRIVATE_DOMAIN}}:3014`. |
+| `FRAUD_SERVICE_URL` | Sí | `http://localhost:3009` | URL interna de fraud-service (`resumen-cierre`). Railway: `http://${{fraud-service.RAILWAY_PRIVATE_DOMAIN}}:3009`. |
+| `CLOSURE_TICKET_SECRET` | Para cancelar cuentas | — | El mismo valor que en auth-service; verifica el ticket de cierre. Distinto de `JWT_SECRET`. Sin ella el servicio arranca, pero cancelar responde 503. Railway: `${{auth-service.CLOSURE_TICKET_SECRET}}`. |
+
+**Claves que deben aceptar a account** (`account:` en su `INTERNAL_TRUSTED_KEYS`, con la
+`INTERNAL_API_KEY` de este servicio): auth, savings, deposit, fraud y ledger (en ledger es de solo
+lectura). En Railway: `account:${{account-service.INTERNAL_API_KEY}}`.
+
+**docker-compose del repositorio de integración** (archivado): todavía no tiene las variables
+anteriores para account-service ni `account:` en el `INTERNAL_TRUSTED_KEYS` de savings, deposit,
+fraud y ledger. Con el compose actual el servicio arranca, pero cancelar la cuenta en local no
+funciona hasta agregarlas (`http://ledger-service:3006`, `http://savings-service:3013`,
+`http://deposit-service:3014`, `http://fraud-service:3009` y `CLOSURE_TICKET_SECRET`).
 | `RABBITMQ_URL` | No | `amqp://banklite:<RABBITMQ_PASSWORD>@localhost:5672` | Conexión a RabbitMQ. Sin ella no se consume `identity.verified` y `account.closed` queda en el outbox. |
 | `RABBITMQ_EXCHANGE` | No | `banklite.events` | Exchange topic de eventos (`banklite.events`). |
 | `RABBITMQ_QUEUE` | No | `account-service.identity-verified` | Cola propia del servicio (con `<cola>.retry` y `<cola>.dlq`). |
@@ -219,7 +247,13 @@ definen `TEST_DATABASE_URL` (p. ej. `postgres://postgres:postgres@localhost:5432
 y cada corrida crea su propia base temporal y la borra. Sin esa variable se omiten en local;
 en CI son obligatorias (el workflow levanta Postgres 16). Cubren el ticket de un solo uso
 (también con solicitudes simultáneas), la segunda revisión de requisitos al cerrar y los
-reintentos hacia auth después de un reinicio.
+reintentos hacia auth después de un reinicio, la revisión del saldo después del cierre y la
+alerta «cuenta cerrada con saldo».
+
+`database/schema.sql` y `database/backup.sql` se verifican en CI (`npm run verificar:esquema`,
+después de `npm run build` y con `TEST_DATABASE_URL`): se restauran en Postgres y TypeORM no debe
+encontrar diferencias con las entidades (`src/entities.ts`). Un caso de control con una columna
+alterada a propósito debe fallar, para comprobar que la verificación sí detecta diferencias.
 
 Las reglas de negocio se prueban de punta a punta con los scripts de `scripts/pruebas/` del repositorio principal.
 
@@ -245,7 +279,7 @@ despliega desde su propio repositorio.
 | [banklite-api-gateway](https://github.com/Luisortiz2406/banklite-api-gateway) | **Lo llama:** punto de entrada público, le enruta las rutas de este servicio |
 | [banklite-kyc-service](https://github.com/Luisortiz2406/banklite-kyc-service) | **Llama a:** nombre del titular<br>**Recibe:** `identity.verified` (activa la cuenta) |
 | [banklite-auth-service](https://github.com/Luisortiz2406/banklite-auth-service) | **Llama a:** verificación de la clave dinámica (llaves Bre-B) y cierre del acceso al cancelar la cuenta (`/internal/auth/cierre-acceso`) |
-| [banklite-ledger-service](https://github.com/Luisortiz2406/banklite-ledger-service) | **Llama a:** saldo de cada cuenta al cancelar (con el token del cliente)<br>**Lo llama:** titular, estado y límites de la cuenta |
+| [banklite-ledger-service](https://github.com/Luisortiz2406/banklite-ledger-service) | **Llama a:** saldo de cada cuenta al cancelar y después del cierre (`GET /ledger/internal/accounts/:id/balance`, solo lectura)<br>**Lo llama:** titular, estado y límites de la cuenta |
 | [banklite-card-service](https://github.com/Luisortiz2406/banklite-card-service) | **Lo llama:** dueño y límite de la cuenta<br>**Envía:** `account.closed` (cancela tarjetas y suscripciones) |
 | [banklite-notification-service](https://github.com/Luisortiz2406/banklite-notification-service) | **Envía:** `account.closed` (correo que confirma la cancelación) |
 | [banklite-deposit-service](https://github.com/Luisortiz2406/banklite-deposit-service) | **Llama a:** `resumen-cierre` (recargas pendientes o en revisión) |

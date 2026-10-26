@@ -4,11 +4,11 @@ import { DataSource, EntityManager, IsNull } from 'typeorm';
 import { Account } from '../accounts/entities/account.entity';
 import { OutboxService } from '../events/outbox.service';
 import { BrebKey } from '../keys/entities/breb-key.entity';
-import { AuthAccessRelayService } from './auth-access-relay.service';
 import { verifyClosureTicket } from './closure-ticket';
 import { ClosureRequirementsService } from './closure-requirements.service';
 import { AccountClosure } from './entities/account-closure.entity';
-import { AuthAccessTask } from './entities/auth-access-task.entity';
+import { ClosureTask } from './entities/closure-task.entity';
+import { BALANCE_CHECK_DELAY_MS, ClosureTasksRelayService } from './closure-tasks-relay.service';
 import { ClosureTicketUse } from './entities/closure-ticket-use.entity';
 
 export interface ClosureResult {
@@ -27,7 +27,8 @@ const USED_TICKET = 'Esta confirmación ya se usó. Vuelve a confirmar con tu cl
  *   2. lo gasta (closure_ticket_uses, clave primaria = jti): un solo uso;
  *   3. vuelve a revisar los requisitos en ese momento (saldo, ahorro, recargas, seguridad);
  *   4. en una transacción: cierra las cuentas, borra las llaves Bre-B, guarda el
- *      cierre, el evento account.closed (outbox) y la tarea "cerrar el acceso en auth".
+ *      cierre, el evento account.closed (outbox) y las tareas posteriores
+ *      (cerrar el acceso en auth y volver a revisar el saldo: closure_tasks).
  * Repetir la misma solicitud (mismo ticket) devuelve el mismo cierre.
  */
 @Injectable()
@@ -39,14 +40,14 @@ export class ClosureService {
     private readonly config: ConfigService,
     private readonly requirements: ClosureRequirementsService,
     private readonly outbox: OutboxService,
-    private readonly authRelay: AuthAccessRelayService,
+    private readonly tasks: ClosureTasksRelayService,
   ) {}
 
-  requisitos(idUser: string, accessToken: string) {
-    return this.requirements.check(idUser, accessToken);
+  requisitos(idUser: string) {
+    return this.requirements.check(idUser);
   }
 
-  async close(idUser: string, accessToken: string, ticket: string): Promise<ClosureResult> {
+  async close(idUser: string, ticket: string): Promise<ClosureResult> {
     const secret = this.config.get<string>('CLOSURE_TICKET_SECRET');
     if (!secret) throw new ServiceUnavailableException('La cancelación de cuentas no está disponible en este momento.');
     const payload = verifyClosureTicket(ticket, secret);
@@ -57,7 +58,7 @@ export class ClosureService {
     if (replay) return replay;
 
     try {
-      const current = await this.requirements.check(idUser, accessToken);
+      const current = await this.requirements.check(idUser);
       if (!current.puedeCancelar) {
         throw new ConflictException({
           statusCode: 409,
@@ -68,7 +69,7 @@ export class ClosureService {
       const result = await this.closeInTransaction(idUser, payload.jti);
       // Sin esperar: si fallan, el relevo de cada uno lo reintenta.
       void this.outbox.flush();
-      void this.authRelay.run();
+      void this.tasks.run();
       return result;
     } catch (error) {
       // 409: algo pendiente (requisitos o un bloqueo del banco). Lo demás: una falla.
@@ -128,7 +129,7 @@ export class ClosureService {
         await this.outbox.enqueue(manager, 'account.closed', [
           { idUser, cerradaEn: closedAt.toISOString(), cuentas: accountNumbers },
         ]);
-        await this.enqueueAuthTask(manager, idUser, closedAt);
+        await this.enqueueTasks(manager, idUser, closedAt);
         await manager.update(ClosureTicketUse, { jti }, { result: 'closed' });
         this.logger.log(`Cuenta cancelada: idUser=${idUser}, ${accounts.length} cuenta(s) cerrada(s).`);
         return this.toResult(closure);
@@ -143,15 +144,13 @@ export class ClosureService {
     }
   }
 
-  private enqueueAuthTask(manager: EntityManager, idUser: string, closedAt: Date) {
-    return manager.insert(AuthAccessTask, {
-      idUser,
-      closedAt,
-      attempts: 0,
-      nextAttemptAt: closedAt,
-      doneAt: null,
-      lastError: null,
-    });
+  /** Cerrar el acceso en auth (ya) y volver a revisar el saldo (en BALANCE_CHECK_DELAY_MS). */
+  private enqueueTasks(manager: EntityManager, idUser: string, closedAt: Date) {
+    const base = { idUser, closedAt, attempts: 0, doneAt: null, lastError: null };
+    return manager.insert(ClosureTask, [
+      { ...base, kind: 'auth_access', nextAttemptAt: closedAt },
+      { ...base, kind: 'balance_check', nextAttemptAt: new Date(closedAt.getTime() + BALANCE_CHECK_DELAY_MS) },
+    ]);
   }
 
   private async markTicket(jti: string, result: 'requirements' | 'error') {
