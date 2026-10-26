@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Brackets, Repository } from 'typeorm';
 import { Account } from '../accounts/entities/account.entity';
@@ -55,7 +55,13 @@ export class AdminAccountsService {
     }
     account.status = status;
     account.blockedBy = status === 'blocked' ? 'bank' : null;
+    if (status === 'closed') account.closedAt = new Date();
     await this.accounts.manager.transaction(async (manager) => {
+      // El cliente pudo cancelar su cuenta mientras tanto: nunca se pisa ese cierre.
+      const locked = await manager.findOne(Account, { where: { id }, lock: { mode: 'pessimistic_write' } });
+      if (locked?.status !== from) {
+        throw new ConflictException('La cuenta cambió de estado mientras tanto. Recarga e inténtalo de nuevo.');
+      }
       await manager.save(account);
       await this.audit.record(
         actor,

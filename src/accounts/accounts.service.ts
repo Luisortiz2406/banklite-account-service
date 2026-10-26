@@ -7,6 +7,7 @@ import { EnsureMerchantDto } from './dto/ensure-merchant.dto';
 import { UpdateStatusDto } from './dto/update-status.dto';
 import { Account } from './entities/account.entity';
 import { IdentityVerification } from './entities/identity-verification.entity';
+import { AccountClosure } from '../closure/entities/account-closure.entity';
 
 // Límites regulatorios por defecto, ajustables por país en una versión futura
 // (3.3 del documento: "restricciones regulatorias específicas por país").
@@ -22,6 +23,7 @@ export class AccountsService {
     @InjectRepository(Account) private readonly accounts: Repository<Account>,
     @InjectRepository(IdentityVerification)
     private readonly verifications: Repository<IdentityVerification>,
+    @InjectRepository(AccountClosure) private readonly closures: Repository<AccountClosure>,
   ) {}
 
   /**
@@ -33,6 +35,10 @@ export class AccountsService {
   async create(dto: CreateAccountDto, requesterId: string): Promise<Account> {
     if (dto.idUser !== requesterId) {
       throw new ForbiddenException('No puedes crear una cuenta para otro usuario');
+    }
+    // Quien canceló su cuenta Banklite no puede abrir otra con el mismo usuario.
+    if (await this.closures.exist({ where: { idUser: dto.idUser } })) {
+      throw new ForbiddenException('Tu cuenta Banklite fue cancelada.');
     }
 
     const verificacion = await this.verifications.findOne({
