@@ -3,6 +3,7 @@ import { DataSource } from 'typeorm';
 import { AdminAuditService } from '../common/staff/admin-audit.service';
 import { StaffPrincipal } from '../common/staff/staff-auth.guard';
 import { ClosureClientsService } from './closure-clients.service';
+import { money } from './closure-requirements.service';
 import { ClosureBalanceAlert } from './entities/closure-balance-alert.entity';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -39,7 +40,7 @@ export class ClosureAlertsService {
       const balance = await this.clients.balance(alert.accountId);
       if (balance !== 0) {
         throw new BadRequestException(
-          `La cuenta todavía tiene ${balance} ${alert.currency}. Devuelve el dinero (reverso del movimiento) antes de cerrar la alerta.`,
+          `La cuenta todavía tiene ${money(balance, alert.currency)}. Devuelve el dinero (reverso del movimiento) antes de cerrar la alerta.`,
         );
       }
 

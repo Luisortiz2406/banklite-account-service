@@ -32,7 +32,7 @@ export interface ClosureRequirements {
 }
 
 const plural = (n: number, singular: string, plural: string) => `${n} ${n === 1 ? singular : plural}`;
-const money = (value: number, currency: string) =>
+export const money = (value: number, currency: string) =>
   new Intl.NumberFormat('es-CO', { style: 'currency', currency, maximumFractionDigits: 2 }).format(value);
 const masked = (accountNumber: string | null) => (accountNumber ? `····${accountNumber.slice(-4)}` : 'sin número');
 
