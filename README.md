@@ -33,7 +33,7 @@ parte del cliente (cierra todas sus cuentas y avisa al resto de servicios).
 
 | | |
 |---|---|
-| Publica eventos | `account.closed` (outbox) → card y notification |
+| Publica eventos | `account.closed` (outbox) → card, notification, rewards, compliance y savings |
 | Consume eventos | `identity.verified` (kyc) → crea/activa la cuenta (cola con reintentos y DLQ) |
 | Llama a | auth-service: clave dinámica (llaves Bre-B) y cierre del acceso al cancelar<br>kyc-service: nombre del titular<br>ledger-service: saldo de cada cuenta al cancelar y otra vez después del cierre (`/ledger/internal`, solo lectura)<br>savings, deposit y fraud: `resumen-cierre` (lo que impide cancelar) |
 | Lo llaman | ledger, card, payment y transfer: datos de la cuenta (`/internal/accounts/*`)<br>api-gateway (rutas `/accounts/*`) |
@@ -171,12 +171,25 @@ A través del gateway las rutas son las mismas (`http://localhost:8080/accounts/
 
 Quien canceló no puede abrir otra cuenta con el mismo usuario.
 
+### Cuentas cerradas en el panel (cumplimiento y admin)
+
+- `GET /accounts/admin/accounts` y `/accounts/admin/accounts/:id`: para cumplimiento y admin, cada
+  cuenta cerrada trae `closedAt` y `cerradaPor`: `cliente` (la canceló el titular desde la app; su
+  número está en `account_closures`) o `banco` (la cerró un administrador). Soporte no recibe esos
+  campos y no puede filtrar `?status=closed` (403).
+- `GET /accounts/admin/closures/:idUser`: el cierre desde la app (fecha y cuentas) para la ficha del
+  cliente; 404 si no canceló desde la app.
+- Bitácora (`admin_audit`): cada consulta que muestra cuentas cerradas o un cierre queda registrada,
+  con quién y su rol: `account_closure.list_viewed` (listado; `details.cuentas` con las cuentas
+  cerradas de esa página) y `account_closure.viewed` (detalle de una cuenta o cierre del cliente).
+
 ### Panel administrativo (`Authorization: Bearer <token de empleado>`; el gateway además valida la sesión)
 
 | Método | Ruta | Roles | Descripción |
 |---|---|---|---|
-| GET | `/accounts/admin/accounts` | cualquier empleado | Busca cuentas. |
-| GET | `/accounts/admin/accounts/:id` | cualquier empleado | Detalle de una cuenta. |
+| GET | `/accounts/admin/accounts` | cualquier empleado | Busca cuentas. `?status=closed` solo compliance y admin (soporte: 403); a ellos las cerradas les llegan con `closedAt` y `cerradaPor` (queda en la bitácora). |
+| GET | `/accounts/admin/accounts/:id` | cualquier empleado | Detalle de una cuenta (cerrada: `closedAt` y `cerradaPor` solo para compliance y admin, en la bitácora). |
+| GET | `/accounts/admin/closures/:idUser` | compliance, admin | Cancelación desde la app: `{ idUser, cerradaEn, cuentas, cerradaPor: 'cliente' }` (queda en la bitácora). |
 | PATCH | `/accounts/admin/accounts/:id/status` | admin | Bloquea, activa o cierra una cuenta. |
 | PATCH | `/accounts/admin/accounts/:id/limits` | admin | Cambia los límites de una cuenta. |
 | GET | `/accounts/admin/closure-alerts` | compliance, admin | Alertas «cuenta cerrada con saldo» (`?status=` `open`, `resolved` o `all`; por defecto `open`) y cuántas hay abiertas. |
@@ -248,7 +261,8 @@ y cada corrida crea su propia base temporal y la borra. Sin esa variable se omit
 en CI son obligatorias (el workflow levanta Postgres 16). Cubren el ticket de un solo uso
 (también con solicitudes simultáneas), la segunda revisión de requisitos al cerrar y los
 reintentos hacia auth después de un reinicio, la revisión del saldo después del cierre y la
-alerta «cuenta cerrada con saldo».
+alerta «cuenta cerrada con saldo». `src/admin/admin-closures.spec.ts`: cuentas cerradas en el panel
+(quién la cerró, permisos por rol y bitácora de cada consulta).
 
 `database/schema.sql` y `database/backup.sql` se verifican en CI (`npm run verificar:esquema`,
 después de `npm run build` y con `TEST_DATABASE_URL`): se restauran en Postgres y TypeORM no debe
@@ -286,5 +300,6 @@ despliega desde su propio repositorio.
 | [banklite-fraud-service](https://github.com/Luisortiz2406/banklite-fraud-service) | **Llama a:** `resumen-cierre` (revisiones de seguridad abiertas) |
 | [banklite-payment-service](https://github.com/Luisortiz2406/banklite-payment-service) | **Lo llama:** cuenta origen y cuenta del convenio |
 | [banklite-transfer-service](https://github.com/Luisortiz2406/banklite-transfer-service) | **Lo llama:** cuentas origen y destino, resolución de llaves Bre-B |
-| [banklite-rewards-service](https://github.com/Luisortiz2406/banklite-rewards-service) | **Lo llama:** cuenta del cliente |
-| [banklite-savings-service](https://github.com/Luisortiz2406/banklite-savings-service) | **Llama a:** `resumen-cierre` (bolsillos y metas con dinero, CDT vigentes)<br>**Lo llama:** cuenta del cliente |
+| [banklite-rewards-service](https://github.com/Luisortiz2406/banklite-rewards-service) | **Lo llama:** cuenta del cliente<br>**Envía:** `account.closed` (deja los Puntos Banklite en 0) |
+| [banklite-compliance-service](https://github.com/Luisortiz2406/banklite-compliance-service) | **Envía:** `account.closed` (registra el cierre y lo marca para revisión si hubo alertas de fraude recientes) |
+| [banklite-savings-service](https://github.com/Luisortiz2406/banklite-savings-service) | **Llama a:** `resumen-cierre` (bolsillos y metas con dinero, CDT vigentes)<br>**Lo llama:** cuenta del cliente<br>**Envía:** `account.closed` (cierra los bolsillos y metas vacíos) |

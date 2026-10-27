@@ -4,6 +4,7 @@ import {
   Get,
   HttpCode,
   Param,
+  ParseUUIDPipe,
   Patch,
   Post,
   Query,
@@ -31,13 +32,20 @@ export class AdminAccountsController {
   ) {}
 
   @Get('accounts')
-  list(@Query() q: AdminAccountsQueryDto) {
-    return this.admin.list(q.q, q.status, q.page ?? 1, q.limit ?? 25);
+  list(@Query() q: AdminAccountsQueryDto, @Req() req: any) {
+    return this.admin.list(req.staff, q.q, q.status, q.page ?? 1, q.limit ?? 25);
   }
 
   @Get('accounts/:id')
-  detail(@Param('id') id: string) {
-    return this.admin.detail(id);
+  detail(@Param('id') id: string, @Req() req: any) {
+    return this.admin.detail(id, req.staff);
+  }
+
+  // Cancelación desde la app: fecha y cuentas, para la ficha del cliente (queda en la bitácora).
+  @Get('closures/:idUser')
+  @StaffRoles('compliance', 'admin')
+  closure(@Param('idUser', ParseUUIDPipe) idUser: string, @Req() req: any) {
+    return this.admin.closure(idUser, req.staff);
   }
 
   @Patch('accounts/:id/status')

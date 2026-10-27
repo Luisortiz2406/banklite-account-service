@@ -265,6 +265,10 @@ describeWithDb('Tareas después de cancelar la cuenta (PostgreSQL)', () => {
       await expect(service.resolve(alert.id, 'Reverso del movimiento entrante', COMPLIANCE)).rejects.toBeInstanceOf(
         BadRequestException,
       );
+      // El saldo va con formato de moneda («$ 75.000»), no «75000 COP».
+      await expect(service.resolve(alert.id, 'Reverso del movimiento entrante', COMPLIANCE)).rejects.toThrow(
+        /todavía tiene \$\s?75\.000\./,
+      );
       expect((await alerts())[0].status).toBe('open');
 
       // Cumplimiento reversa el movimiento: la cuenta vuelve a $0.
