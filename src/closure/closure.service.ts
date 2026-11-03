@@ -26,7 +26,7 @@ const USED_TICKET = 'Esta confirmación ya se usó. Vuelve a confirmar con tu cl
  *   1. verifica el ticket de cierre que emitió auth (clave + código por WhatsApp);
  *   2. lo gasta (closure_ticket_uses, clave primaria = jti): un solo uso;
  *   3. vuelve a revisar los requisitos en ese momento (saldo, ahorro, recargas, seguridad);
- *   4. en una transacción: cierra las cuentas, borra las llaves Bre-B, guarda el
+ *   4. en una transacción: cierra las cuentas, borra las llaves Banklite, guarda el
  *      cierre, el evento account.closed (outbox) y las tareas posteriores
  *      (cerrar el acceso en auth y volver a revisar el saldo: closure_tasks).
  * Repetir la misma solicitud (mismo ticket) devuelve el mismo cierre.
@@ -121,7 +121,7 @@ export class ClosureService {
             { status: 'closed', closedAt },
           );
         }
-        // Liberar las llaves Bre-B: otra persona podrá registrarlas.
+        // Liberar las llaves Banklite: otra persona podrá registrarlas.
         await manager.delete(BrebKey, { idUser });
         const closure = await manager.save(
           manager.create(AccountClosure, { idUser, closedAt, accountNumbers, ticketJti: jti }),

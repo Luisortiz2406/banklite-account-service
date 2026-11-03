@@ -2,7 +2,7 @@ import { Column, CreateDateColumn, Entity, Index, PrimaryGeneratedColumn } from 
 import { BrebKeyType } from '../breb';
 
 /**
- * Directorio de llaves Bre-B de los clientes Banklite: cada llave apunta a una
+ * Directorio de llaves Banklite de los clientes: cada llave apunta a una
  * cuenta. Una llave pertenece a una sola persona y cada persona tiene máximo
  * una llave por tipo.
  */

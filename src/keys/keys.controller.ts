@@ -45,7 +45,7 @@ class LookupKeyDto {
 const userOf = (request: Request): string => (request as any).user.idUser;
 const tokenOf = (request: Request): string => String(request.headers.authorization || '').slice('Bearer '.length);
 
-/** Llaves Bre-B del cliente. Va antes que AccountsController: /accounts/:account_id capturaría /accounts/keys. */
+/** Llaves Banklite del cliente. Va antes que AccountsController: /accounts/:account_id capturaría /accounts/keys. */
 @Controller('accounts/keys')
 @UseGuards(JwtAuthGuard)
 export class KeysController {
