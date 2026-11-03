@@ -20,7 +20,7 @@ export class Account {
   @Column({ name: 'account_number', type: 'varchar', length: 11, nullable: true })
   accountNumber: string | null;
 
-  // merchant: cuenta de un comercio (p. ej. Cine Demo Estelar) que recibe los cobros de
+  // merchant: cuenta de un comercio (p. ej. Cineluz) que recibe los cobros de
   // suscripciones. Su dueño es un usuario de sistema, nunca un cliente.
   @Column({ name: 'account_type', type: 'varchar', default: 'savings' })
   accountType: 'savings' | 'checking' | 'merchant';
