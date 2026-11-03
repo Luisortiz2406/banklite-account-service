@@ -14,7 +14,7 @@ ON CONFLICT DO NOTHING;
 INSERT INTO public.accounts (id, id_user, account_number, account_type, merchant_code, merchant_name, currency, status, daily_limit, monthly_limit, created_at) VALUES
   ('3a000000-0000-4000-8000-000000000001', '11111111-1111-4111-8111-111111111111', '10000000001', 'savings', NULL, NULL, 'COP', 'active', 5000000, 50000000, '2026-10-01 09:02:00-05'),
   ('3a000000-0000-4000-8000-000000000002', '22222222-2222-4222-8222-222222222222', '10000000002', 'savings', NULL, NULL, 'COP', 'active', 5000000, 50000000, '2026-10-01 09:07:00-05'),
-  ('3a000000-0000-4000-8000-0000000000a1', '00000000-0000-4000-8000-0000000000aa', '90000000001', 'merchant', 'fac-acueducto', 'Aguas Demo Sabana', 'COP', 'active', 5000000, 50000000, '2026-10-01 08:00:00-05')
+  ('3a000000-0000-4000-8000-0000000000a1', '00000000-0000-4000-8000-0000000000aa', '90000000001', 'merchant', 'fac-acueducto', 'Acueducto Montecielo', 'COP', 'active', 5000000, 50000000, '2026-10-01 08:00:00-05')
 ON CONFLICT DO NOTHING;
 
 INSERT INTO public.breb_keys (id, key, type, id_user, account_id, holder_name, created_at) VALUES
