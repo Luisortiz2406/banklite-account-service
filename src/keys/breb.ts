@@ -1,5 +1,5 @@
 /**
- * Llaves Bre-B: tipos, cómo se reconoce cada una y cómo se muestran a medias.
+ * Llaves Banklite: tipos, cómo se reconoce cada una y cómo se muestran a medias.
  * Las mismas reglas que usa el frontend (llaves.js / transferir.js).
  */
 export type BrebKeyType = 'celular' | 'correo' | 'documento' | 'alfanumerica';
@@ -35,7 +35,7 @@ export function maskKey(key: string, type: BrebKeyType): string {
   return key;
 }
 
-/** Bre-B muestra el nombre a medias para confirmar sin revelarlo completo: "Lau••• Góm•••". */
+/** El nombre se muestra a medias para confirmar sin revelarlo completo: "Lau••• Góm•••". */
 export function maskName(name: string): string {
   return (
     String(name ?? '')

@@ -2,7 +2,7 @@
 
 [![Despliegue](https://github.com/Luisortiz2406/banklite-account-service/actions/workflows/deploy.yml/badge.svg?branch=main)](https://github.com/Luisortiz2406/banklite-account-service/actions/workflows/deploy.yml)
 
-Cuentas de ahorro de los clientes, sus límites y estado, cuentas de comercio y llaves Bre-B.
+Cuentas de ahorro de los clientes, sus límites y estado, cuentas de comercio y llaves Banklite.
 
 Parte de **BankLite**, banco digital académico construido con microservicios. Cada
 microservicio tiene su propia base de datos y se comunica con los demás por HTTP
@@ -13,7 +13,7 @@ microservicio tiene su propia base de datos y se comunica con los demás por HTT
 Administra las cuentas bancarias. Una cuenta solo se **activa** cuando llega el evento
 `identity.verified` de kyc-service. Es la fuente de verdad de *a quién pertenece* cada
 cuenta, su estado y sus límites diario y mensual; el saldo **no** vive aquí sino en
-ledger-service. También registra las **llaves Bre-B** (correo, documento o alfanumérica)
+ledger-service. También registra las **llaves Banklite** (correo, documento o alfanumérica)
 que transfer-service resuelve para enviar dinero, y la **cancelación de la cuenta** por
 parte del cliente (cierra todas sus cuentas y avisa al resto de servicios).
 
@@ -22,12 +22,12 @@ parte del cliente (cierra todas sus cuentas y avisa al resto de servicios).
 - Número de cuenta único de 11 dígitos; una cuenta `merchant` por convenio (idempotente por código).
 - Estados `pending` → `active` (al verificarse la identidad), `blocked` y `closed`; una cuenta bloqueada o cerrada no mueve dinero.
 - Límites diario y mensual por cuenta (el ledger los consulta antes de cada débito).
-- Llaves Bre-B: formato validado en el servidor, una por tipo, registro y borrado con clave dinámica.
+- Llaves Banklite: formato validado en el servidor, una por tipo, registro y borrado con clave dinámica.
 - El cliente solo ve y modifica sus cuentas; el panel cambia estado y límites (solo `admin`).
 - **Cancelar la cuenta** (ver abajo): saldo en $0 y nada pendiente en ahorro, recargas ni
   revisiones de seguridad; confirmación con clave + código por WhatsApp (ticket de cierre de
   auth, un solo uso) y la palabra `CANCELAR`. Cierra todas las cuentas del cliente (no se
-  borran), libera sus llaves Bre-B, publica `account.closed` y cierra el acceso en auth.
+  borran), libera sus llaves Banklite, publica `account.closed` y cierra el acceso en auth.
 
 **Comunicación con otros servicios**
 
@@ -35,7 +35,7 @@ parte del cliente (cierra todas sus cuentas y avisa al resto de servicios).
 |---|---|
 | Publica eventos | `account.closed` (outbox) → card, notification, rewards, compliance y savings |
 | Consume eventos | `identity.verified` (kyc) → crea/activa la cuenta (cola con reintentos y DLQ) |
-| Llama a | auth-service: clave dinámica (llaves Bre-B) y cierre del acceso al cancelar<br>kyc-service: nombre del titular<br>ledger-service: saldo de cada cuenta al cancelar y otra vez después del cierre (`/ledger/internal`, solo lectura)<br>savings, deposit y fraud: `resumen-cierre` (lo que impide cancelar) |
+| Llama a | auth-service: clave dinámica (llaves Banklite) y cierre del acceso al cancelar<br>kyc-service: nombre del titular<br>ledger-service: saldo de cada cuenta al cancelar y otra vez después del cierre (`/ledger/internal`, solo lectura)<br>savings, deposit y fraud: `resumen-cierre` (lo que impide cancelar) |
 | Lo llaman | ledger, card, payment y transfer: datos de la cuenta (`/internal/accounts/*`)<br>api-gateway (rutas `/accounts/*`) |
 | Integraciones externas | — |
 
@@ -56,7 +56,7 @@ rutas internas.
 | Tabla | Contenido |
 |---|---|
 | `accounts` | Cuentas (titular, número, tipo, moneda, estado, límites). |
-| `breb_keys` | Llaves Bre-B registradas. |
+| `breb_keys` | Llaves Banklite registradas. |
 | `identity_verifications` | Proyección de `identity.verified` (idempotencia del evento). |
 | `admin_audit` | Bitácora de acciones del panel en este servicio (quién, rol, qué y cuándo). |
 | `account_closures` | Una fila por cliente que canceló: fecha, cuentas cerradas y ticket usado. |
@@ -127,10 +127,10 @@ A través del gateway las rutas son las mismas (`http://localhost:8080/accounts/
 | GET | `/accounts/:account_id/limits` | Límites diario y mensual de la cuenta. |
 | PUT | `/accounts/:account_id/status` | Cambia el estado de una cuenta propia. |
 | GET | `/accounts/:account_id` | Detalle de una cuenta propia. |
-| GET | `/accounts/keys` | Llaves Bre-B del cliente. |
+| GET | `/accounts/keys` | Llaves Banklite del cliente. |
 | GET | `/accounts/keys/lookup` | Consulta a quién pertenece una llave (nombre enmascarado) antes de transferir. |
-| POST | `/accounts/keys` | Registra una llave Bre-B (exige clave dinámica). |
-| POST | `/accounts/keys/:type/remove` | Elimina una llave Bre-B (exige clave dinámica). |
+| POST | `/accounts/keys` | Registra una llave Banklite (exige clave dinámica). |
+| POST | `/accounts/keys/:type/remove` | Elimina una llave Banklite (exige clave dinámica). |
 | GET | `/accounts/cierre/requisitos` | Qué falta para cancelar la cuenta: `puedeCancelar`, `cuentas` (con su saldo) y `pendientes` (código y mensaje). |
 | POST | `/accounts/cierre` | Cancela la cuenta. Cuerpo `{ ticket, confirmacion: "CANCELAR" }`. 403 si el ticket no es válido; 409 si ya se usó o si algo quedó pendiente (con `pendientes`). |
 
@@ -146,7 +146,7 @@ A través del gateway las rutas son las mismas (`http://localhost:8080/accounts/
      cierra dos veces; un ticket gastado en un intento rechazado ya no sirve;
    - **vuelve a revisar los requisitos** en ese momento (no confía en la pantalla anterior); si un
      servicio no responde, no cierra;
-   - en **una transacción**: cuentas en `closed` con `closed_at`, llaves Bre-B borradas, fila en
+   - en **una transacción**: cuentas en `closed` con `closed_at`, llaves Banklite borradas, fila en
      `account_closures`, evento `account.closed` en el outbox y dos tareas en `closure_tasks`.
 4. Después, sin que el cliente espere:
    - el outbox publica `account.closed` → `data: { idUser, cerradaEn, cuentas: [accountNumber] }`;
@@ -206,7 +206,7 @@ Quien canceló no puede abrir otra cuenta con el mismo usuario.
 | GET | `/internal/accounts/:account_id/ledger-info` | Titular, estado, moneda y límites de una cuenta. |
 | GET | `/internal/accounts/number/:account_number/ledger-info` | Lo mismo, buscando por número de cuenta. |
 | POST | `/internal/accounts/merchants` | Crea u obtiene la cuenta de un comercio/convenio. |
-| GET | `/internal/accounts/keys/resolve` | Resuelve una llave Bre-B a su cuenta (transfer-service). |
+| GET | `/internal/accounts/keys/resolve` | Resuelve una llave Banklite a su cuenta (transfer-service). |
 
 ## Variables de entorno
 
@@ -302,14 +302,14 @@ despliega desde su propio repositorio.
 |---|---|
 | [banklite-api-gateway](https://github.com/Luisortiz2406/banklite-api-gateway) | **Lo llama:** punto de entrada público, le enruta las rutas de este servicio |
 | [banklite-kyc-service](https://github.com/Luisortiz2406/banklite-kyc-service) | **Llama a:** nombre del titular<br>**Recibe:** `identity.verified` (activa la cuenta) |
-| [banklite-auth-service](https://github.com/Luisortiz2406/banklite-auth-service) | **Llama a:** verificación de la clave dinámica (llaves Bre-B) y cierre del acceso al cancelar la cuenta (`/internal/auth/cierre-acceso`) |
+| [banklite-auth-service](https://github.com/Luisortiz2406/banklite-auth-service) | **Llama a:** verificación de la clave dinámica (llaves Banklite) y cierre del acceso al cancelar la cuenta (`/internal/auth/cierre-acceso`) |
 | [banklite-ledger-service](https://github.com/Luisortiz2406/banklite-ledger-service) | **Llama a:** saldo de cada cuenta al cancelar y después del cierre (`GET /ledger/internal/accounts/:id/balance`, solo lectura)<br>**Lo llama:** titular, estado y límites de la cuenta |
 | [banklite-card-service](https://github.com/Luisortiz2406/banklite-card-service) | **Lo llama:** dueño y límite de la cuenta<br>**Envía:** `account.closed` (cancela tarjetas y suscripciones) |
 | [banklite-notification-service](https://github.com/Luisortiz2406/banklite-notification-service) | **Envía:** `account.closed` (correo que confirma la cancelación) |
 | [banklite-deposit-service](https://github.com/Luisortiz2406/banklite-deposit-service) | **Llama a:** `resumen-cierre` (recargas pendientes o en revisión) |
 | [banklite-fraud-service](https://github.com/Luisortiz2406/banklite-fraud-service) | **Llama a:** `resumen-cierre` (revisiones de seguridad abiertas) |
 | [banklite-payment-service](https://github.com/Luisortiz2406/banklite-payment-service) | **Lo llama:** cuenta origen y cuenta del convenio |
-| [banklite-transfer-service](https://github.com/Luisortiz2406/banklite-transfer-service) | **Lo llama:** cuentas origen y destino, resolución de llaves Bre-B |
+| [banklite-transfer-service](https://github.com/Luisortiz2406/banklite-transfer-service) | **Lo llama:** cuentas origen y destino, resolución de llaves Banklite |
 | [banklite-rewards-service](https://github.com/Luisortiz2406/banklite-rewards-service) | **Lo llama:** cuenta del cliente<br>**Envía:** `account.closed` (deja los Puntos Banklite en 0) |
 | [banklite-compliance-service](https://github.com/Luisortiz2406/banklite-compliance-service) | **Envía:** `account.closed` (registra el cierre y lo marca para revisión si hubo alertas de fraude recientes) |
 | [banklite-savings-service](https://github.com/Luisortiz2406/banklite-savings-service) | **Llama a:** `resumen-cierre` (bolsillos y metas con dinero, CDT vigentes)<br>**Lo llama:** cuenta del cliente<br>**Envía:** `account.closed` (cierra los bolsillos y metas vacíos) |
