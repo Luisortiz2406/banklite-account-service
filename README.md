@@ -271,6 +271,10 @@ alterada a propósito debe fallar, para comprobar que la verificación sí detec
 
 Las reglas de negocio se prueban de punta a punta con los scripts de `scripts/pruebas/` del repositorio principal.
 
+Cuentas (`accounts.service.spec.ts`): nadie abre cuentas a nombre de otro, quien canceló no abre otra, los límites nunca superan los regulatorios y un bloqueo del banco no lo levanta el titular. Llaves (`keys.service.spec.ts`, `breb.spec.ts`): solo se registran datos propios verificados en KYC y registrar o borrar exige la clave dinámica. Llamadas de la cancelación (`closure-clients.service.spec.ts`): si algo no responde, no se puede cancelar. Consumidor de `identity.verified`, outbox de `account.closed`, controladores, guards, `/health` y validación de configuración.
+
+**Cobertura:** el pipeline la muestra en el resumen de cada corrida y exige un mínimo de 70 % de líneas y 50 % de ramas (`umbral-lineas` y `umbral-ramas` en `deploy.yml`). Hoy está en 90,8 % de líneas y 84,5 % de ramas.
+
 ## Despliegue
 
 Lo despliega **GitHub Actions** (`.github/workflows/deploy.yml`, que usa el workflow
