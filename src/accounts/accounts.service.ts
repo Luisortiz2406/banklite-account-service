@@ -70,7 +70,9 @@ export class AccountsService {
         blockedBy: null,
       });
       try {
-        return await this.accounts.save(account);
+        const saved = await this.accounts.save(account);
+        // numeric de Postgres vuelve como texto ('5000000.00'): se devuelve como número, igual que GET /accounts/:id/limits.
+        return { ...saved, dailyLimit: Number(saved.dailyLimit), monthlyLimit: Number(saved.monthlyLimit) } as Account;
       } catch (error) {
         if ((error as any)?.code !== '23505' || attempt === 4) throw error;
       }

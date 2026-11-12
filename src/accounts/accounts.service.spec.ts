@@ -57,6 +57,21 @@ describeWithDb('AccountsService (PostgreSQL)', () => {
     );
 
   describe('abrir una cuenta', () => {
+    it('REGRESIÓN: la respuesta trae los límites como números, igual que GET /accounts/:id/limits', async () => {
+      await verify(ANA);
+
+      const account = await open(ANA, { dailyLimit: 1_000_000, monthlyLimit: 10_000_000 });
+      const wire = JSON.parse(JSON.stringify(account));
+
+      expect(wire.dailyLimit).toBe(1_000_000);
+      expect(wire.monthlyLimit).toBe(10_000_000);
+      const limits = await service.getLimits(account.id, ANA);
+      expect([wire.dailyLimit, wire.monthlyLimit]).toEqual([limits.dailyLimit, limits.monthlyLimit]);
+      // Con los límites por defecto también
+      const other = JSON.parse(JSON.stringify(await open(ANA)));
+      expect([other.dailyLimit, other.monthlyLimit]).toEqual([5_000_000, 50_000_000]);
+    });
+
     it('queda activa si la identidad ya se verificó, con número de 11 dígitos y los límites por defecto', async () => {
       await verify(ANA);
 
