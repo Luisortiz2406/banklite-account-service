@@ -8,6 +8,8 @@ import { ClosureService } from '../closure/closure.service';
 import { ENTITIES } from '../entities';
 import { EventPublisherService } from '../events/event-publisher.service';
 import { OutboxService } from '../events/outbox.service';
+import { ClosureMetrics } from '../metrics/closure-metrics';
+import { MetricsService } from '../metrics/metrics.service';
 import { TEST_CLOSURE_SECRET } from './closure-ticket.fixture';
 
 // Todas las tablas del servicio, igual que en producción.
@@ -53,14 +55,17 @@ export function buildClosure(dataSource: DataSource, clients: FakeClients) {
   );
   const outbox = new OutboxService(dataSource, { isReady: () => false } as unknown as EventPublisherService);
   const relayKick = { run: jest.fn(async () => 0) };
+  // Métricas reales (sin abrir el puerto): las pruebas leen lo que se publicaría en /metrics.
+  const metricsService = new MetricsService(new ConfigService({}));
   const service = new ClosureService(
     dataSource,
     closureConfig(),
     requirements,
     outbox,
     relayKick as unknown as ClosureTasksRelayService,
+    new ClosureMetrics(metricsService),
   );
-  return { service, requirements, relayKick };
+  return { service, requirements, relayKick, metricsService };
 }
 
 let accountCounter = 0;
