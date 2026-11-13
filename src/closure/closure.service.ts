@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { DataSource, EntityManager, IsNull } from 'typeorm';
 import { Account } from '../accounts/entities/account.entity';
 import { OutboxService } from '../events/outbox.service';
+import { ClosureMetrics, ClosureResult as ClosureMetricResult } from '../metrics/closure-metrics';
 import { BrebKey } from '../keys/entities/breb-key.entity';
 import { verifyClosureTicket } from './closure-ticket';
 import { ClosureRequirementsService } from './closure-requirements.service';
@@ -41,7 +42,20 @@ export class ClosureService {
     private readonly requirements: ClosureRequirementsService,
     private readonly outbox: OutboxService,
     private readonly tasks: ClosureTasksRelayService,
+    private readonly metrics: ClosureMetrics,
   ) {}
+
+  /**
+   * Cuenta el resultado de una solicitud en account_closures_total. NUNCA puede romper un cierre: se llama
+   * después de guardar (o de decidir que no se cierra) y cualquier fallo se ignora.
+   */
+  private countClosure(result: ClosureMetricResult) {
+    try {
+      this.metrics.record(result);
+    } catch {
+      // ignorar: la métrica no es parte del cierre
+    }
+  }
 
   requisitos(idUser: string) {
     return this.requirements.check(idUser);
@@ -66,13 +80,16 @@ export class ClosureService {
           pendientes: current.pendientes,
         });
       }
-      const result = await this.closeInTransaction(idUser, payload.jti);
+      const { result, created } = await this.closeInTransaction(idUser, payload.jti);
+      // Solo el cierre que ESTA solicitud hizo: si otra solicitud ya había cerrado, esa lo contó.
+      if (created) this.countClosure('completed');
       // Sin esperar: si fallan, el relevo de cada uno lo reintenta.
       void this.outbox.flush();
       void this.tasks.run();
       return result;
     } catch (error) {
       // 409: algo pendiente (requisitos o un bloqueo del banco). Lo demás: una falla.
+      this.countClosure(error instanceof ConflictException ? 'requirements' : 'error');
       await this.markTicket(payload.jti, error instanceof ConflictException ? 'requirements' : 'error');
       throw error;
     }
@@ -91,7 +108,8 @@ export class ClosureService {
     }
   }
 
-  private async closeInTransaction(idUser: string, jti: string): Promise<ClosureResult> {
+  /** `created`: true solo si esta solicitud fue la que cerró las cuentas (false si ya estaban cerradas). */
+  private async closeInTransaction(idUser: string, jti: string): Promise<{ result: ClosureResult; created: boolean }> {
     try {
       return await this.dataSource.transaction(async (manager) => {
         // Bloquea las cuentas del cliente: nadie las cambia mientras se cierran.
@@ -105,7 +123,7 @@ export class ClosureService {
           .getMany();
 
         const already = await manager.findOne(AccountClosure, { where: { idUser } });
-        if (already) return this.toResult(already);
+        if (already) return { result: this.toResult(already), created: false };
 
         // El banco pudo bloquear una cuenta después de la revisión de requisitos.
         if (accounts.some((a) => a.status === 'blocked' && a.blockedBy === 'bank')) {
@@ -132,13 +150,13 @@ export class ClosureService {
         await this.enqueueTasks(manager, idUser, closedAt);
         await manager.update(ClosureTicketUse, { jti }, { result: 'closed' });
         this.logger.log(`Cuenta cancelada: idUser=${idUser}, ${accounts.length} cuenta(s) cerrada(s).`);
-        return this.toResult(closure);
+        return { result: this.toResult(closure), created: true };
       });
     } catch (error) {
       // Otra solicitud (con otro ticket) cerró la cuenta al mismo tiempo: se responde ese cierre.
       if ((error as any)?.code === '23505') {
         const closure = await this.dataSource.getRepository(AccountClosure).findOne({ where: { idUser } });
-        if (closure) return this.toResult(closure);
+        if (closure) return { result: this.toResult(closure), created: false };
       }
       throw error;
     }

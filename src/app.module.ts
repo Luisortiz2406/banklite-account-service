@@ -5,6 +5,7 @@ import { AccountsModule } from './accounts/accounts.module';
 import { ENTITIES } from './entities';
 import { HealthController } from './health.controller';
 import { validateEnv } from './config/env.validation';
+import { MetricsModule } from './metrics/metrics.module';
 
 const validateCommon = validateEnv(
   [
@@ -34,6 +35,7 @@ function validateClosureSecret(config: Record<string, unknown>) {
 
 @Module({
   imports: [
+    MetricsModule,
     ConfigModule.forRoot({
       isGlobal: true,
       envFilePath: '.env',

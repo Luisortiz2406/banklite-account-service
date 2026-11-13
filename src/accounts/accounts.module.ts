@@ -31,6 +31,7 @@ import { ClosureBalanceAlert } from '../closure/entities/closure-balance-alert.e
 import { ClosureTask } from '../closure/entities/closure-task.entity';
 import { ClosureTicketUse } from '../closure/entities/closure-ticket-use.entity';
 import { EventsModule } from '../events/events.module';
+import { MetricsModule } from '../metrics/metrics.module';
 
 @Module({
   imports: [
@@ -47,6 +48,7 @@ import { EventsModule } from '../events/events.module';
       ClosureBalanceAlert,
     ]),
     EventsModule,
+    MetricsModule,
   ],
   // Los controladores de /accounts/admin, /accounts/keys y /accounts/cierre primero:
   // si no, /accounts/:account_id los capturaría.

@@ -1,10 +1,12 @@
 import { ConflictException, ForbiddenException, ServiceUnavailableException } from '@nestjs/common';
 import { randomUUID } from 'crypto';
+import { Counter } from 'prom-client';
 import { DataSource } from 'typeorm';
 import { AccountsService } from '../accounts/accounts.service';
 import { Account } from '../accounts/entities/account.entity';
 import { IdentityVerification } from '../accounts/entities/identity-verification.entity';
 import { AccountOutbox } from '../events/account-outbox.entity';
+import { MetricsService } from '../metrics/metrics.service';
 import { BrebKey } from '../keys/entities/breb-key.entity';
 import { signTestTicket, signTestToken, TEST_CLOSURE_SECRET } from '../testing/closure-ticket.fixture';
 import { buildClosure, CLOSURE_ENTITIES, fakeClients, FakeClients, seedAccount } from '../testing/closure-harness';
@@ -25,6 +27,7 @@ describeWithDb('Cancelar la cuenta en account-service (PostgreSQL)', () => {
   let clients: FakeClients;
   let service: ClosureService;
   let relayKick: { run: jest.Mock };
+  let metricsService: MetricsService;
 
   beforeAll(async () => {
     ({ dataSource, drop } = await createTestDatabase('account_cierre', CLOSURE_ENTITIES));
@@ -37,11 +40,17 @@ describeWithDb('Cancelar la cuenta en account-service (PostgreSQL)', () => {
   beforeEach(async () => {
     await truncateAll(dataSource);
     clients = fakeClients();
-    ({ service, relayKick } = buildClosure(dataSource, clients));
+    ({ service, relayKick, metricsService } = buildClosure(dataSource, clients));
   });
 
   const count = (entity: Parameters<DataSource['getRepository']>[0]) => dataSource.getRepository(entity).count();
   const statusOf = async (id: string) => (await dataSource.getRepository(Account).findOneByOrFail({ id })).status;
+  /** account_closures_total con valor mayor que 0, como { resultado: cuenta }. */
+  const closuresCounted = async () => {
+    const counter = metricsService.registry.getSingleMetric('account_closures_total') as Counter;
+    const { values } = await counter.get();
+    return Object.fromEntries(values.filter((v) => v.value > 0).map((v) => [v.labels.result, v.value]));
+  };
   const ticketResult = async (ticket: string) => {
     const jti = JSON.parse(Buffer.from(ticket.split('.')[1], 'base64url').toString()).jti;
     return (await dataSource.getRepository(ClosureTicketUse).findOneByOrFail({ jti })).result;
@@ -291,6 +300,58 @@ describeWithDb('Cancelar la cuenta en account-service (PostgreSQL)', () => {
       const req = await service.requisitos(ANA);
       expect(req.puedeCancelar).toBe(false);
       expect(req.pendientes.map((p) => p.codigo)).toEqual(['operacion_en_proceso']);
+    });
+  });
+
+  describe('Métricas: account_closures_total', () => {
+    it('un cierre cuenta completed una sola vez, también si se repite el mismo ticket', async () => {
+      await seedAccount(dataSource, ANA);
+      const ticket = signTestTicket(ANA);
+
+      await service.close(ANA, ticket);
+      await service.close(ANA, ticket);
+
+      expect(await closuresCounted()).toEqual({ completed: 1 });
+    });
+
+    it('con el mismo ticket enviado 5 veces a la vez, cuenta un solo completed', async () => {
+      await seedAccount(dataSource, ANA);
+      const ticket = signTestTicket(ANA);
+
+      await Promise.allSettled(Array.from({ length: 5 }, () => service.close(ANA, ticket)));
+
+      expect(await closuresCounted()).toEqual({ completed: 1 });
+    });
+
+    it('con dos tickets distintos a la vez, cuenta un solo completed (el otro encontró el cierre hecho)', async () => {
+      await seedAccount(dataSource, ANA);
+
+      await Promise.allSettled([service.close(ANA, signTestTicket(ANA)), service.close(ANA, signTestTicket(ANA))]);
+
+      expect(await count(AccountClosure)).toBe(1);
+      expect(await closuresCounted()).toEqual({ completed: 1 });
+    });
+
+    it('requisitos pendientes cuentan requirements y un servicio caído cuenta error; ninguno cierra', async () => {
+      const cuenta = await seedAccount(dataSource, ANA);
+      clients.balances.set(cuenta.id, 250_000);
+      await expect(service.close(ANA, signTestTicket(ANA))).rejects.toBeInstanceOf(ConflictException);
+      clients.balances.set(cuenta.id, 0);
+      clients.savingsSummary.mockRejectedValueOnce(new ServiceUnavailableException('savings caído'));
+      await expect(service.close(ANA, signTestTicket(ANA))).rejects.toBeInstanceOf(ServiceUnavailableException);
+
+      expect(await closuresCounted()).toEqual({ requirements: 1, error: 1 });
+      expect(await statusOf(cuenta.id)).toBe('active');
+    });
+
+    it('un ticket inválido o ya gastado no cuenta', async () => {
+      await seedAccount(dataSource, ANA);
+      await expect(service.close(ANA, signTestTicket(CARLOS))).rejects.toBeInstanceOf(ForbiddenException);
+      const ticket = signTestTicket(ANA);
+      await service.close(ANA, ticket);
+      await expect(service.close(CARLOS, ticket)).rejects.toBeInstanceOf(ForbiddenException);
+
+      expect(await closuresCounted()).toEqual({ completed: 1 });
     });
   });
 });

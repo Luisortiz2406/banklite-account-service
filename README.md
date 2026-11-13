@@ -220,6 +220,7 @@ todas se configuran como variables del servicio, nunca en el código.
 |---|---|---|---|
 | `NODE_ENV` | No | `development` | `development` en local; `production` en Railway (lo fija el Dockerfile). |
 | `PORT` | No | `3002` | Puerto HTTP del servicio. |
+| `METRICS_PORT` | No | `9100` | Puerto de `GET /metrics` (Prometheus), solo para la red privada; **no** es el puerto público (`PORT`). `off` lo apaga. |
 | `DATABASE_URL` | **Sí** (no arranca sin ella) | `postgres://account_svc:<DB_PASSWORD_ACCOUNT>@localhost:5432/account_db` | Conexión a PostgreSQL de **su** base (rol propio, sin acceso a las demás). |
 | `JWT_SECRET` | **Sí** (no arranca sin ella) | — | Firma de los JWT de clientes (el mismo valor que en auth-service). |
 | `STAFF_JWT_SECRET` | **Sí** (no arranca sin ella) | — | Firma de los JWT de empleados del panel (el mismo que en auth-service; distinto de JWT_SECRET). |
@@ -248,6 +249,23 @@ funciona hasta agregarlas (`http://ledger-service:3006`, `http://savings-service
 | `EVENT_MAX_RETRIES` | No | `5` | Reintentos de un evento antes de mandarlo a la DLQ. |
 | `EVENT_RETRY_DELAY_MS` | No | `10000` | Espera entre reintentos de un evento. |
 | `HTTP_READ_RETRIES` | No | `1` | Reintentos de las lecturas (GET) a otros servicios; las escrituras no se reintentan. |
+
+## Métricas de negocio (`account_closures_total`)
+
+Además de las métricas HTTP y de Node (puerto `METRICS_PORT`, solo red privada), el servicio publica
+`account_closures_total{result}`: cancelaciones de cuenta del cliente por resultado, con `result` de lista cerrada
+(los mismos tres valores que se guardan en `closure_ticket_uses.result`). Nunca lleva ids, cuentas, correos, motivos
+ni los pendientes del cliente.
+
+| `result` | Cuándo se cuenta (en `ClosureService.close`) |
+|---|---|
+| `completed` | Se cerraron las cuentas del cliente. Una sola vez por cliente: si otra solicitud ya había cerrado (dos tickets a la vez), o se repite el mismo ticket, no se cuenta de nuevo. |
+| `requirements` | No se cerró porque queda algo pendiente: los requisitos ya no se cumplen, o el banco bloqueó una cuenta (respuesta 409). |
+| `error` | No se cerró por una falla: otro servicio sin respuesta al revisar los requisitos o un error inesperado. |
+
+No cuentan las solicitudes que se rechazan **antes** de gastar el ticket (ticket inválido, vencido o de otro
+cliente, o el servicio de cancelación sin configurar) ni el reuso de un ticket ya gastado. Tampoco el cierre de una
+cuenta individual por el personal desde el panel. Contar nunca rompe un cierre de cuenta.
 
 ## Pruebas
 
